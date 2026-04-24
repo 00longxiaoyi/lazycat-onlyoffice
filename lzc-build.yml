@@ -1,0 +1,12 @@
+buildscript: sh build.sh
+manifest: ./lzc-manifest.yml
+contentdir: ./content
+pkgout: ./lpk
+icon: ./lzc-icon.png
+
+devshell:
+  routes:
+    - /=http://127.0.0.1:3000
+  dependencies:
+    - nodejs
+    - npm

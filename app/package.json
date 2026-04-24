@@ -1,0 +1,30 @@
+{
+  "name": "lazycat-onlyoffice-docs-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:server": "npm run build:server && node dist/server/index.js",
+    "dev:frontend": "vite --host 0.0.0.0",
+    "build:server": "node scripts/build-server.mjs",
+    "build:frontend": "vite build",
+    "build": "npm run build:server && npm run build:frontend",
+    "start": "node dist/server/index.js",
+    "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.frontend.json --noEmit"
+  },
+  "dependencies": {
+    "@lazycatcloud/lzc-file-pickers": "2.0.15",
+    "@lazycatcloud/minidb": "0.0.13",
+    "@vitejs/plugin-react": "latest",
+    "vite": "latest",
+    "typescript": "latest",
+    "tsx": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest"
+  }
+}
