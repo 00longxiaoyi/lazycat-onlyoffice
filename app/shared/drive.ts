@@ -1,5 +1,5 @@
 export type LazycatDriveEntryType = 'file' | 'directory';
-export type LazycatDriveScope = 'all' | 'shared' | 'external' | 'mount';
+export type LazycatDriveScope = 'all' | 'shared' | 'external' | 'mount' | 'client';
 
 export interface LazycatDriveEntry {
   name: string;

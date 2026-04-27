@@ -1,0 +1,23 @@
+package: cloud.lazycat.app.onlyoffice-docs
+version: 0.6.0
+name: 高级协同办公套件
+description: 在线文档查看与编辑办公套件
+license: AGPL-3.0
+homepage: https://www.onlyoffice.com/
+author: lazycat
+min_os_version: 1.5.0
+unsupported_platforms:
+  - android
+  - ios
+  - tvos
+locales:
+  zh-CN:
+    name: 高级协同办公套件
+    description: 在线文档查看与编辑办公套件
+  en-US:
+    name: Office Suite
+    description: Online document viewing and editing office suite
+permissions:
+  optional:
+    - net.internet
+    - net.lan

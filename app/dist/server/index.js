@@ -179,14 +179,20 @@ function loadConfig() {
   const port = Number(process.env.PORT || "3000");
   const appOrigin = (process.env.APP_ORIGIN || `http://localhost:${port}`).replace(/\/+$/, "");
   const homeRoot = process.env.HOME_ROOT || "/lzcapp/document";
+  const clientfsRoot = process.env.CLIENTFS_ROOT || "/lzcapp/clientfs";
   const stateDir2 = process.env.STATE_DIR || "/lzcapp/var/state";
+  const fontsDir = process.env.FONTS_DIR || "/lzcapp/var/fonts";
+  const fontRefreshDir = process.env.FONT_REFRESH_DIR || "/lzcapp/var/document-server/font-refresh";
   const documentServerPublicOrigin = (process.env.DOCUMENT_SERVER_PUBLIC_ORIGIN || "").replace(/\/+$/, "");
   const deployUid = (process.env.DEPLOY_UID || process.env.LAZYCAT_APP_DEPLOY_UID || "").trim();
   return {
     port,
     appOrigin,
     homeRoot,
+    clientfsRoot,
     stateDir: stateDir2,
+    fontsDir,
+    fontRefreshDir,
     documentServerPublicOrigin,
     deployUid
   };
@@ -197,13 +203,15 @@ import http from "node:http";
 
 // server/errors.ts
 var HttpError = class extends Error {
-  constructor(status, code, message) {
+  constructor(status, code, message, details) {
     super(message);
     this.status = status;
     this.code = code;
+    this.details = details;
   }
   status;
   code;
+  details;
 };
 function isHttpError(error) {
   return error instanceof HttpError;
@@ -220,7 +228,10 @@ function sendJson(response, status, payload) {
 }
 function sendError(response, error) {
   if (isHttpError(error)) {
-    sendJson(response, error.status, { error: { code: error.code, message: error.message } });
+    sendJson(response, error.status, {
+      error: { code: error.code, message: error.message },
+      ...error.details || {}
+    });
     return;
   }
   const message = error instanceof Error ? error.message : "Internal server error";
@@ -233,142 +244,6 @@ async function readJsonBody(request) {
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   return raw ? JSON.parse(raw) : {};
-}
-
-// server/services/editor-session.ts
-import fs3 from "node:fs/promises";
-import path4 from "node:path";
-
-// server/services/file-url.ts
-import path from "node:path";
-var FILE_PREFIX = "/_lzc/files/home/";
-function normalizeLazycatFileUrl(fileUrl) {
-  if (!fileUrl || typeof fileUrl !== "string") {
-    throw new HttpError(400, "missing_file_url", "Missing Lazycat file URL.");
-  }
-  let parsed;
-  try {
-    parsed = new URL(fileUrl);
-  } catch {
-    return normalizeLazycatRelativePath(fileUrl);
-  }
-  if (parsed.protocol !== "https:") {
-    throw new HttpError(400, "invalid_file_url_protocol", "File URL must use https.");
-  }
-  if (!parsed.hostname.startsWith("file.")) {
-    throw new HttpError(400, "invalid_file_host", "File URL host must start with file.");
-  }
-  if (!parsed.pathname.startsWith(FILE_PREFIX)) {
-    throw new HttpError(400, "invalid_file_prefix", `File URL path must start with ${FILE_PREFIX}.`);
-  }
-  const rawRelativePath = decodeURIComponent(parsed.pathname.slice(FILE_PREFIX.length));
-  const relativePath = normalizeRelativePath(rawRelativePath);
-  const title = path.posix.basename(relativePath) || "document";
-  const fileType = path.posix.extname(title).replace(/^\./, "").toLowerCase();
-  if (!fileType) {
-    throw new HttpError(415, "unsupported_file_type", "File URL does not contain a file extension.");
-  }
-  return {
-    originalUrl: fileUrl,
-    fileOrigin: parsed.origin,
-    relativePath,
-    ownerUid: "",
-    title,
-    fileType
-  };
-}
-function normalizeLazycatRelativePath(filePath) {
-  const relativePath = normalizeRelativePath(filePath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^home\//, ""));
-  const title = path.posix.basename(relativePath) || "document";
-  const fileType = path.posix.extname(title).replace(/^\./, "").toLowerCase();
-  if (!fileType) {
-    throw new HttpError(415, "unsupported_file_type", "File path does not contain a file extension.");
-  }
-  return {
-    originalUrl: filePath,
-    fileOrigin: "",
-    relativePath,
-    ownerUid: "",
-    title,
-    fileType
-  };
-}
-function normalizeRelativePath(input) {
-  const withoutNull = input.replace(/\0/g, "");
-  const normalized = path.posix.normalize(`/${withoutNull}`).replace(/^\/+/, "");
-  if (!normalized || normalized === ".") {
-    throw new HttpError(400, "empty_relative_path", "File URL does not contain a file path.");
-  }
-  if (normalized.startsWith("../") || normalized.includes("/../")) {
-    throw new HttpError(400, "unsafe_relative_path", "File path escapes allowed root.");
-  }
-  return normalized;
-}
-
-// server/services/document-type.ts
-var WORD_EXTS = /* @__PURE__ */ new Set(["doc", "docm", "docx", "dot", "dotm", "dotx", "epub", "fb2", "fodt", "htm", "html", "mht", "odt", "ott", "rtf", "txt", "wps", "xml"]);
-var CELL_EXTS = /* @__PURE__ */ new Set(["csv", "fods", "ods", "ots", "xls", "xlsm", "xlsx", "xlt", "xltm", "xltx"]);
-var SLIDE_EXTS = /* @__PURE__ */ new Set(["fodp", "odp", "otp", "pot", "potm", "potx", "pps", "ppsm", "ppsx", "ppt", "pptm", "pptx"]);
-function getDocumentType(fileType) {
-  const ext = fileType.toLowerCase();
-  if (WORD_EXTS.has(ext)) return "word";
-  if (CELL_EXTS.has(ext)) return "cell";
-  if (SLIDE_EXTS.has(ext)) return "slide";
-  throw new HttpError(415, "unsupported_file_type", `Unsupported file type: ${fileType}`);
-}
-
-// server/services/token.ts
-import crypto from "node:crypto";
-function createSessionId() {
-  return crypto.randomBytes(16).toString("hex");
-}
-function createDocumentKey(input) {
-  return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
-}
-
-// server/services/file-store.ts
-import fs from "node:fs";
-import path2 from "node:path";
-import { pipeline } from "node:stream/promises";
-function resolveHomeFilePath(relativePath, config2, ownerUid) {
-  const root = path2.resolve(config2.homeRoot);
-  const normalizedOwnerUid = normalizeOwnerUid(ownerUid);
-  const target = normalizedOwnerUid ? path2.resolve(root, normalizedOwnerUid, relativePath) : path2.resolve(root, relativePath);
-  if (target !== root && !target.startsWith(`${root}${path2.sep}`)) {
-    throw new HttpError(400, "unsafe_file_path", "Resolved file path escapes home root.");
-  }
-  return target;
-}
-function createReadStreamForRelativePath(relativePath, config2, range, ownerUid) {
-  const target = resolveHomeFilePath(relativePath, config2, ownerUid);
-  if (!fs.existsSync(target) || !fs.statSync(target).isFile()) {
-    throw new HttpError(404, "file_not_found", "File does not exist.");
-  }
-  return fs.createReadStream(target, range);
-}
-async function saveFromUrl(url, relativePath, config2, ownerUid) {
-  const target = resolveHomeFilePath(relativePath, config2, ownerUid);
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new HttpError(502, "callback_download_failed", `Failed to download saved document: ${response.status}`);
-  }
-  await fs.promises.mkdir(path2.dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await pipeline(response.body, fs.createWriteStream(tmp));
-  await fs.promises.rename(tmp, target);
-}
-function normalizeOwnerUid(ownerUid) {
-  if (!ownerUid) {
-    return "";
-  }
-  const normalized = ownerUid.trim();
-  if (!normalized) {
-    return "";
-  }
-  if (normalized.includes("/") || normalized.includes("\\") || normalized === "." || normalized === "..") {
-    throw new HttpError(400, "unsafe_owner_uid", "Owner UID is invalid.");
-  }
-  return normalized;
 }
 
 // server/db/minidb.ts
@@ -401,11 +276,11 @@ function getErrorMessage(error) {
 }
 
 // server/db/file-store.ts
-import fs2 from "node:fs/promises";
-import path3 from "node:path";
+import fs from "node:fs/promises";
+import path from "node:path";
 async function readJsonArray(name) {
   try {
-    const content = await fs2.readFile(resolveStateFile(name), "utf8");
+    const content = await fs.readFile(resolveStateFile(name), "utf8");
     const value = JSON.parse(content);
     return Array.isArray(value) ? value : [];
   } catch (error) {
@@ -417,11 +292,11 @@ async function readJsonArray(name) {
 }
 async function writeJsonArray(name, items) {
   const target = resolveStateFile(name);
-  await fs2.mkdir(path3.dirname(target), { recursive: true });
-  await fs2.writeFile(target, JSON.stringify(items, null, 2), "utf8");
+  await fs.mkdir(path.dirname(target), { recursive: true });
+  await fs.writeFile(target, JSON.stringify(items, null, 2), "utf8");
 }
 function resolveStateFile(name) {
-  return path3.join(getStateDir(), `${name}.json`);
+  return path.join(getStateDir(), `${name}.json`);
 }
 function isMissingFile(error) {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";
@@ -460,68 +335,333 @@ async function getSession(id) {
     return sessions.find((session) => session.id === id);
   }
 }
+async function findActiveEditSession(documentIdentity, userId) {
+  try {
+    const sessions = await collection().find({
+      documentIdentity,
+      mode: "edit",
+      state: "active"
+    }).fetch();
+    return sessions.find((session) => session.user.id === userId);
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+    const sessions = await readJsonArray(SESSIONS_STORE);
+    return sessions.find((session) => session.documentIdentity === documentIdentity && session.user.id === userId && session.mode === "edit" && session.state === "active");
+  }
+}
+async function updateSession(session) {
+  await saveSession(session);
+}
+async function releaseActiveSession(id) {
+  const session = await getSession(id);
+  if (!session || session.state !== "active") {
+    return;
+  }
+  const releasedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await updateSession({
+    ...session,
+    state: "released",
+    updatedAt: releasedAt,
+    releasedAt
+  });
+}
+
+// server/services/editor-session.ts
+import fs3 from "node:fs/promises";
+import path4 from "node:path";
+
+// server/services/file-url.ts
+import path2 from "node:path";
+var FILE_PREFIX = "/_lzc/files/home/";
+function normalizeLazycatFileUrl(fileUrl) {
+  if (fileUrl.startsWith("clientfs:")) {
+    return normalizeClientfsRelativePath(fileUrl.slice("clientfs:".length));
+  }
+  if (!fileUrl || typeof fileUrl !== "string") {
+    throw new HttpError(400, "missing_file_url", "Missing Lazycat file URL.");
+  }
+  let parsed;
+  try {
+    parsed = new URL(fileUrl);
+  } catch {
+    return normalizeLazycatRelativePath(fileUrl);
+  }
+  if (isRemoteDocumentUrl(parsed)) {
+    return normalizeRemoteDocumentUrl(parsed, fileUrl);
+  }
+  if (parsed.protocol !== "https:") {
+    throw new HttpError(400, "invalid_file_url_protocol", "File URL must use https.");
+  }
+  if (!parsed.hostname.startsWith("file.")) {
+    throw new HttpError(400, "invalid_file_host", "File URL host must start with file.");
+  }
+  if (!parsed.pathname.startsWith(FILE_PREFIX)) {
+    throw new HttpError(400, "invalid_file_prefix", `File URL path must start with ${FILE_PREFIX}.`);
+  }
+  const rawRelativePath = decodeURIComponent(parsed.pathname.slice(FILE_PREFIX.length));
+  const relativePath = normalizeRelativePath(rawRelativePath);
+  const title = path2.posix.basename(relativePath) || "document";
+  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  if (!fileType) {
+    throw new HttpError(415, "unsupported_file_type", "File URL does not contain a file extension.");
+  }
+  return {
+    originalUrl: fileUrl,
+    fileOrigin: parsed.origin,
+    relativePath,
+    ownerUid: "",
+    title,
+    fileType,
+    storageType: "lazycat-file"
+  };
+}
+function normalizeRemoteDocumentUrl(parsed, originalUrl) {
+  const title = resolveRemoteDocumentTitle(parsed);
+  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  if (!fileType) {
+    throw new HttpError(415, "unsupported_file_type", "Remote URL does not contain a file extension.");
+  }
+  return {
+    originalUrl,
+    fileOrigin: parsed.origin,
+    relativePath: title,
+    ownerUid: "",
+    title,
+    fileType,
+    storageType: "remote-url"
+  };
+}
+function normalizeClientfsRelativePath(filePath) {
+  const relativePath = normalizeRelativePath(filePath.replace(/\\/g, "/").replace(/^\/+/, ""));
+  const title = path2.posix.basename(relativePath) || "document";
+  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  if (!fileType) {
+    throw new HttpError(415, "unsupported_file_type", "Client file path does not contain a file extension.");
+  }
+  return {
+    originalUrl: `clientfs:${relativePath}`,
+    fileOrigin: "",
+    relativePath,
+    ownerUid: "",
+    title,
+    fileType,
+    storageType: "clientfs"
+  };
+}
+function normalizeLazycatRelativePath(filePath) {
+  const relativePath = normalizeRelativePath(filePath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^home\//, ""));
+  const title = path2.posix.basename(relativePath) || "document";
+  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  if (!fileType) {
+    throw new HttpError(415, "unsupported_file_type", "File path does not contain a file extension.");
+  }
+  return {
+    originalUrl: filePath,
+    fileOrigin: "",
+    relativePath,
+    ownerUid: "",
+    title,
+    fileType,
+    storageType: "local-path"
+  };
+}
+function isRemoteDocumentUrl(parsed) {
+  return (parsed.protocol === "http:" || parsed.protocol === "https:") && !parsed.hostname.startsWith("file.");
+}
+function resolveRemoteDocumentTitle(parsed) {
+  const rawName = decodeURIComponent(path2.posix.basename(parsed.pathname));
+  const nameFromPath = sanitizeTitle(rawName);
+  if (path2.posix.extname(nameFromPath)) {
+    return nameFromPath;
+  }
+  const nameFromQuery = sanitizeTitle(parsed.searchParams.get("filename") || parsed.searchParams.get("name") || "");
+  if (path2.posix.extname(nameFromQuery)) {
+    return nameFromQuery;
+  }
+  return nameFromPath || nameFromQuery || "document";
+}
+function sanitizeTitle(input) {
+  const sanitized = input.replace(/[\\/:*?"<>|\0]/g, "_").trim();
+  return sanitized || "document";
+}
+function normalizeRelativePath(input) {
+  const withoutNull = input.replace(/\0/g, "");
+  const normalized = path2.posix.normalize(`/${withoutNull}`).replace(/^\/+/, "");
+  if (!normalized || normalized === ".") {
+    throw new HttpError(400, "empty_relative_path", "File URL does not contain a file path.");
+  }
+  if (normalized.startsWith("../") || normalized.includes("/../")) {
+    throw new HttpError(400, "unsafe_relative_path", "File path escapes allowed root.");
+  }
+  return normalized;
+}
+
+// server/services/document-type.ts
+var WORD_EXTS = /* @__PURE__ */ new Set(["doc", "docm", "docx", "dot", "dotm", "dotx", "epub", "fb2", "fodt", "htm", "html", "mht", "odt", "ott", "rtf", "txt", "wps", "xml"]);
+var CELL_EXTS = /* @__PURE__ */ new Set(["csv", "fods", "ods", "ots", "xls", "xlsm", "xlsx", "xlt", "xltm", "xltx"]);
+var SLIDE_EXTS = /* @__PURE__ */ new Set(["fodp", "odp", "otp", "pot", "potm", "potx", "pps", "ppsm", "ppsx", "ppt", "pptm", "pptx"]);
+function getDocumentType(fileType) {
+  const ext = fileType.toLowerCase();
+  if (WORD_EXTS.has(ext)) return "word";
+  if (CELL_EXTS.has(ext)) return "cell";
+  if (SLIDE_EXTS.has(ext)) return "slide";
+  throw new HttpError(415, "unsupported_file_type", `Unsupported file type: ${fileType}`);
+}
+
+// server/services/token.ts
+import crypto from "node:crypto";
+function createSessionId() {
+  return crypto.randomBytes(16).toString("hex");
+}
+function createDocumentKey(input) {
+  return crypto.createHash("sha256").update(input).digest("hex").slice(0, 32);
+}
+
+// server/services/file-store.ts
+import fs2 from "node:fs";
+import path3 from "node:path";
+import { pipeline } from "node:stream/promises";
+import { Readable } from "node:stream";
+function resolveClientfsFilePath(relativePath, config2, ownerUid) {
+  const normalizedOwnerUid = normalizeOwnerUid(ownerUid);
+  const scopedPath = normalizedOwnerUid ? path3.join(normalizedOwnerUid, relativePath) : relativePath;
+  return resolvePathInRoot(config2.clientfsRoot, scopedPath, "Resolved clientfs path escapes clientfs root.");
+}
+function resolveHomeFilePath(relativePath, config2, ownerUid) {
+  const root = path3.resolve(config2.homeRoot);
+  const normalizedOwnerUid = normalizeOwnerUid(ownerUid);
+  const scopedPath = normalizedOwnerUid ? path3.join(normalizedOwnerUid, relativePath) : relativePath;
+  return resolvePathInRoot(root, scopedPath, "Resolved file path escapes home root.");
+}
+function createReadStreamForRelativePath(relativePath, config2, range, ownerUid, root = "home") {
+  const target = root === "clientfs" ? resolveClientfsFilePath(relativePath, config2, ownerUid) : resolveHomeFilePath(relativePath, config2, ownerUid);
+  if (!fs2.existsSync(target) || !fs2.statSync(target).isFile()) {
+    throw new HttpError(404, "file_not_found", "File does not exist.");
+  }
+  return fs2.createReadStream(target, range);
+}
+async function saveFromUrl(url, relativePath, config2, ownerUid, root = "home") {
+  const target = root === "clientfs" ? resolveClientfsFilePath(relativePath, config2, ownerUid) : resolveHomeFilePath(relativePath, config2, ownerUid);
+  const response = await fetch(url);
+  if (!response.ok || !response.body) {
+    throw new HttpError(502, "callback_download_failed", `Failed to download saved document: ${response.status}`);
+  }
+  await fs2.promises.mkdir(path3.dirname(target), { recursive: true });
+  if (root === "clientfs") {
+    const body = Buffer.from(await response.arrayBuffer());
+    await writeClientfsFile(target, body);
+    return;
+  }
+  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
+  await pipeline(response.body, fs2.createWriteStream(tmp));
+  await fs2.promises.rename(tmp, target);
+}
+async function writeClientfsFile(target, body) {
+  try {
+    await fs2.promises.writeFile(target, body);
+    return;
+  } catch (writeError) {
+    try {
+      await fs2.promises.truncate(target, 0);
+      await pipeline(Readable.from(body), fs2.createWriteStream(target, { flags: "r+" }));
+      return;
+    } catch (streamError) {
+      const writeMessage = writeError instanceof Error ? writeError.message : String(writeError);
+      const streamMessage = streamError instanceof Error ? streamError.message : String(streamError);
+      throw new HttpError(500, "clientfs_write_failed", `Clientfs write failed: ${writeMessage}; fallback failed: ${streamMessage}`);
+    }
+  }
+}
+function normalizeOwnerUid(ownerUid) {
+  if (!ownerUid) {
+    return "";
+  }
+  const normalized = ownerUid.trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.includes("/") || normalized.includes("\\") || normalized === "." || normalized === "..") {
+    throw new HttpError(400, "unsafe_owner_uid", "Owner UID is invalid.");
+  }
+  return normalized;
+}
+function resolvePathInRoot(rootPath, relativePath, errorMessage) {
+  const root = path3.resolve(rootPath);
+  const target = path3.resolve(root, relativePath);
+  if (target !== root && !target.startsWith(`${root}${path3.sep}`)) {
+    throw new HttpError(400, "unsafe_file_path", errorMessage);
+  }
+  return target;
+}
 
 // server/db/recent-store.ts
+import crypto2 from "node:crypto";
 var RECENT_STORE = "recent_files";
 function collection2() {
   return getCollection(RECENT_STORE);
 }
 async function touchRecentFile(session) {
   try {
-    const existing = await collection2().findOne({ id: session.id });
+    const existing = await findExistingRecentFile(session.ownerUid, session.originalUrl);
     await collection2().upsert(buildRecentFile(session, existing));
+    if (existing && existing.id !== buildRecentFileId(session.ownerUid, session.originalUrl)) {
+      await collection2().remove(existing.id);
+    }
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
     const items = await readJsonArray(RECENT_STORE);
-    const index = items.findIndex((item) => item.id === session.id);
-    const next = buildRecentFile(session, index >= 0 ? items[index] : void 0);
-    if (index >= 0) {
-      items[index] = next;
-    } else {
-      items.push(next);
-    }
-    await writeJsonArray(RECENT_STORE, items);
+    const existing = items.find((item) => item.ownerUid === session.ownerUid && item.fileUrl === session.originalUrl);
+    const next = buildRecentFile(session, existing);
+    const nextItems = [next, ...items.filter((item) => item.id !== next.id && !(item.ownerUid === session.ownerUid && item.fileUrl === session.originalUrl))];
+    await writeJsonArray(RECENT_STORE, nextItems);
   }
 }
-async function listRecentFiles(limit = 20) {
+async function listRecentFiles(ownerUid, limit = 20) {
   try {
-    const items = await collection2().find({}, { sort: ["-lastOpenedAt"] }).fetch();
+    const items = await collection2().find({ ownerUid }, { sort: ["-lastOpenedAt"] }).fetch();
     return items.slice(0, limit);
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
     const items = await readJsonArray(RECENT_STORE);
-    return items.sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt)).slice(0, limit);
+    return items.filter((item) => item.ownerUid === ownerUid).sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt)).slice(0, limit);
   }
 }
-async function deleteRecentFile(id) {
+async function deleteRecentFile(id, ownerUid) {
   try {
-    await collection2().remove(id);
+    const existing = await collection2().findOne({ id });
+    if (existing?.ownerUid === ownerUid) {
+      await collection2().remove(id);
+    }
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
     const items = await readJsonArray(RECENT_STORE);
-    await writeJsonArray(RECENT_STORE, items.filter((item) => item.id !== id));
+    await writeJsonArray(RECENT_STORE, items.filter((item) => item.id !== id || item.ownerUid !== ownerUid));
   }
 }
-async function clearRecentFiles() {
+async function clearRecentFiles(ownerUid) {
   try {
-    const items = await collection2().find({}).fetch();
-    await collection2().remove(items.map((item) => item.id));
+    const items2 = await collection2().find({ ownerUid }).fetch();
+    await collection2().remove(items2.map((item) => item.id));
+    return;
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
   }
-  await writeJsonArray(RECENT_STORE, []);
+  const items = await readJsonArray(RECENT_STORE);
+  await writeJsonArray(RECENT_STORE, items.filter((item) => item.ownerUid !== ownerUid));
 }
 function buildRecentFile(session, existing) {
   return {
-    id: session.id,
+    id: buildRecentFileId(session.ownerUid, session.originalUrl),
     fileUrl: session.originalUrl,
     relativePath: session.relativePath,
     ownerUid: session.ownerUid,
@@ -532,6 +672,18 @@ function buildRecentFile(session, existing) {
     openCount: (existing?.openCount || 0) + 1
   };
 }
+async function findExistingRecentFile(ownerUid, fileUrl) {
+  const id = buildRecentFileId(ownerUid, fileUrl);
+  const byId = await collection2().findOne({ id });
+  if (byId) {
+    return byId;
+  }
+  return collection2().findOne({ ownerUid, fileUrl });
+}
+function buildRecentFileId(ownerUid, fileUrl) {
+  return crypto2.createHash("sha256").update(`${ownerUid}
+${fileUrl}`).digest("hex").slice(0, 32);
+}
 
 // server/services/editor-session.ts
 async function createEditorSessionWithCookie(request, config2, options) {
@@ -540,8 +692,29 @@ async function createEditorSessionWithCookie(request, config2, options) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const id = createSessionId();
   const ownerUid = options.user.id;
-  const documentIdentity = await resolveDocumentIdentity(normalized.relativePath, ownerUid, config2);
-  const documentKey = createDocumentKey(documentIdentity);
+  const documentIdentity = normalized.storageType === "remote-url" ? `remote-url:${normalized.originalUrl}` : await resolveDocumentIdentity(normalized.relativePath, ownerUid, config2, normalized.storageType === "clientfs" ? "clientfs" : "home");
+  const requestedMode = request.mode === "view" ? "view" : "edit";
+  const activeSession = requestedMode === "edit" ? await findActiveEditSession(documentIdentity, options.user.id) : void 0;
+  if (activeSession && !request.takeover) {
+    throw new HttpError(409, "editor_session_conflict", "\u4F60\u5DF2\u5728\u5176\u4ED6\u7A97\u53E3\u6216\u8BBE\u5907\u7F16\u8F91\u6B64\u6587\u4EF6\u3002", {
+      conflict: {
+        sessionId: activeSession.id,
+        title: activeSession.title,
+        updatedAt: activeSession.updatedAt
+      }
+    });
+  }
+  if (activeSession && request.takeover) {
+    const supersededAt = now;
+    await updateSession({
+      ...activeSession,
+      state: "superseded",
+      updatedAt: supersededAt,
+      supersededAt,
+      supersededBy: id
+    });
+  }
+  const documentKey = createDocumentKey(`${documentIdentity}:${id}`);
   const session = {
     ...normalized,
     ownerUid,
@@ -550,6 +723,9 @@ async function createEditorSessionWithCookie(request, config2, options) {
     createdAt: now,
     updatedAt: now,
     source: request.source || "manual",
+    mode: requestedMode,
+    state: "active",
+    documentIdentity,
     documentKey,
     requestCookie: options.requestCookie,
     user: options.user
@@ -561,9 +737,9 @@ async function createEditorSessionWithCookie(request, config2, options) {
     config: buildOnlyOfficeConfig(session, config2)
   };
 }
-async function resolveDocumentIdentity(relativePath, ownerUid, config2) {
+async function resolveDocumentIdentity(relativePath, ownerUid, config2, root) {
   try {
-    const target = resolveHomeFilePath(relativePath, config2, ownerUid);
+    const target = root === "clientfs" ? resolveClientfsFilePath(relativePath, config2, ownerUid) : resolveHomeFilePath(relativePath, config2, ownerUid);
     const [stats, realPath] = await Promise.all([
       fs3.stat(target),
       fs3.realpath(target).catch(() => target)
@@ -573,7 +749,7 @@ async function resolveDocumentIdentity(relativePath, ownerUid, config2) {
       if (mountedIdentity) {
         return mountedIdentity;
       }
-      const documentPathIdentity = resolveDocumentPathIdentity(realPath, target, config2);
+      const documentPathIdentity = root === "clientfs" ? `clientfs-path:/${relativePath}` : resolveDocumentPathIdentity(realPath, target, config2);
       if (documentPathIdentity) {
         return documentPathIdentity;
       }
@@ -586,7 +762,7 @@ async function resolveDocumentIdentity(relativePath, ownerUid, config2) {
       error: error instanceof Error ? error.message : String(error)
     });
   }
-  return `path:${relativePath}`;
+  return `${root}:path:${relativePath}`;
 }
 function resolveDocumentPathIdentity(realPath, targetPath, config2) {
   const root = path4.resolve(config2.homeRoot);
@@ -688,6 +864,7 @@ function buildOnlyOfficeConfig(session, config2) {
   const documentServiceOrigin = config2.documentServerPublicOrigin || config2.appOrigin;
   const downloadUrl = `${documentServiceOrigin}/download/${encodeURIComponent(session.id)}`;
   const callbackUrl = `${documentServiceOrigin}/callback/${encodeURIComponent(session.id)}`;
+  const canEdit = session.mode === "edit" && session.state === "active";
   return {
     width: "100%",
     height: "100%",
@@ -699,15 +876,15 @@ function buildOnlyOfficeConfig(session, config2) {
       fileType: session.fileType,
       key: session.documentKey,
       permissions: {
-        edit: true,
+        edit: canEdit,
         download: true,
         print: true,
-        review: true,
-        comment: true
+        review: canEdit,
+        comment: canEdit
       }
     },
     editorConfig: {
-      mode: "edit",
+      mode: canEdit ? "edit" : "view",
       lang: "zh-CN",
       callbackUrl,
       user: session.user,
@@ -720,16 +897,8 @@ function buildOnlyOfficeConfig(session, config2) {
   };
 }
 
-// server/routes/editor.ts
-async function handleEditorSession(request, response, config2) {
-  const body = await readJsonBody(request);
-  const result = await createEditorSessionWithCookie(body, config2, {
-    requestCookie: request.headers.cookie,
-    user: resolveEditorUser(request, config2)
-  });
-  sendJson(response, 200, result);
-}
-function resolveEditorUser(request, config2) {
+// server/user.ts
+function resolveRequestUser(request, config2) {
   const headerUserId = readHeader(request, "x-hc-user-id");
   const userId = headerUserId || config2.deployUid || "anonymous";
   const displayName = headerUserId || config2.deployUid || "anonymous";
@@ -746,20 +915,37 @@ function readHeader(request, name) {
   return value?.trim() || "";
 }
 
-// server/routes/recent.ts
-async function handleRecentFiles(response) {
-  const items = await listRecentFiles();
-  sendJson(response, 200, { items });
+// server/routes/editor.ts
+async function handleEditorSession(request, response, config2) {
+  const body = await readJsonBody(request);
+  const result = await createEditorSessionWithCookie(body, config2, {
+    requestCookie: request.headers.cookie,
+    user: resolveRequestUser(request, config2)
+  });
+  sendJson(response, 200, result);
 }
-async function handleClearRecentFiles(response) {
-  await clearRecentFiles();
+async function handleReleaseEditorSession(sessionId, _request, response) {
+  await releaseActiveSession(sessionId);
   sendJson(response, 200, { ok: true });
 }
-async function handleDeleteRecentFile(id, response) {
+
+// server/routes/recent.ts
+async function handleRecentFiles(request, response, config2) {
+  const user = resolveRequestUser(request, config2);
+  const items = await listRecentFiles(user.id);
+  sendJson(response, 200, { items });
+}
+async function handleClearRecentFiles(request, response, config2) {
+  const user = resolveRequestUser(request, config2);
+  await clearRecentFiles(user.id);
+  sendJson(response, 200, { ok: true });
+}
+async function handleDeleteRecentFile(id, request, response, config2) {
   if (!id) {
     throw new HttpError(400, "missing_recent_id", "Missing recent file id.");
   }
-  await deleteRecentFile(id);
+  const user = resolveRequestUser(request, config2);
+  await deleteRecentFile(id, user.id);
   sendJson(response, 200, { ok: true });
 }
 
@@ -767,11 +953,14 @@ async function handleDeleteRecentFile(id, response) {
 import { pipeline as pipeline2 } from "node:stream/promises";
 async function handleDownload(sessionId, request, response, config2, headOnly = false) {
   const session = await getRequiredSession(sessionId);
-  if (session.fileOrigin) {
+  if (session.storageType === "remote-url") {
     return proxyOriginalFileDownload(session, request, response, headOnly);
   }
-  const resolvedPath = resolveHomeFilePath(session.relativePath, config2, session.ownerUid);
-  const stats = await import("node:fs").then((fs6) => fs6.promises.stat(resolvedPath));
+  if (session.storageType === "lazycat-file" || session.fileOrigin) {
+    return proxyOriginalFileDownload(session, request, response, headOnly);
+  }
+  const resolvedPath = session.storageType === "clientfs" ? resolveClientfsFilePath(session.relativePath, config2, session.ownerUid) : resolveHomeFilePath(session.relativePath, config2, session.ownerUid);
+  const stats = await import("node:fs").then((fs7) => fs7.promises.stat(resolvedPath));
   console.log("[download] local request", {
     sessionId,
     title: session.title,
@@ -800,7 +989,13 @@ async function handleDownload(sessionId, request, response, config2, headOnly = 
     response.end();
     return;
   }
-  const stream = createReadStreamForRelativePath(session.relativePath, config2, range || void 0, session.ownerUid);
+  const stream = createReadStreamForRelativePath(
+    session.relativePath,
+    config2,
+    range || void 0,
+    session.ownerUid,
+    session.storageType === "clientfs" ? "clientfs" : "home"
+  );
   stream.pipe(response);
 }
 async function proxyOriginalFileDownload(session, request, response, headOnly) {
@@ -808,7 +1003,7 @@ async function proxyOriginalFileDownload(session, request, response, headOnly) {
     method: headOnly ? "HEAD" : "GET",
     headers: {
       ...request.headers.range ? { range: request.headers.range } : {},
-      ...session.requestCookie ? { cookie: session.requestCookie } : {}
+      ...session.storageType === "lazycat-file" && session.requestCookie ? { cookie: session.requestCookie } : {}
     }
   });
   if (!upstream.ok && upstream.status !== 206) {
@@ -880,7 +1075,44 @@ async function handleCallback(sessionId, request, response, config2) {
     ownerUid: session.ownerUid
   });
   if ((status === 2 || status === 6) && payload.url) {
-    await saveFromUrl(payload.url, session.relativePath, config2, session.ownerUid);
+    if (session.mode !== "edit" || session.state !== "active") {
+      console.warn("[callback] ignored inactive editor session save", {
+        sessionId,
+        status,
+        mode: session.mode,
+        state: session.state,
+        supersededBy: session.supersededBy
+      });
+      return sendJson(response, 200, { error: 0 });
+    }
+    if (session.storageType === "remote-url") {
+      await saveRemoteDocumentFromUrl(payload.url, session.originalUrl, session.fileType);
+      console.log("[callback] saved remote document", {
+        sessionId,
+        status,
+        title: session.title,
+        source: session.originalUrl
+      });
+      return sendJson(response, 200, { error: 0 });
+    }
+    try {
+      await saveFromUrl(
+        payload.url,
+        session.relativePath,
+        config2,
+        session.ownerUid,
+        session.storageType === "clientfs" ? "clientfs" : "home"
+      );
+    } catch (error) {
+      console.error("[callback] failed to save document", {
+        sessionId,
+        storageType: session.storageType,
+        relativePath: session.relativePath,
+        ownerUid: session.ownerUid,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
     console.log("[callback] saved document", {
       sessionId,
       status,
@@ -890,6 +1122,24 @@ async function handleCallback(sessionId, request, response, config2) {
     });
   }
   sendJson(response, 200, { error: 0 });
+}
+async function saveRemoteDocumentFromUrl(sourceUrl, targetUrl, fileType) {
+  const download = await fetch(sourceUrl);
+  if (!download.ok) {
+    throw new HttpError(502, "callback_download_failed", `Failed to download saved document: ${download.status}`);
+  }
+  const body = Buffer.from(await download.arrayBuffer());
+  const upload = await fetch(targetUrl, {
+    method: "PUT",
+    headers: {
+      "content-type": download.headers.get("content-type") || contentTypeFor(fileType),
+      "content-length": String(body.byteLength)
+    },
+    body
+  });
+  if (!upload.ok) {
+    throw new HttpError(upload.status, "remote_writeback_failed", `Remote URL writeback failed: ${upload.status}`);
+  }
 }
 async function getRequiredSession(sessionId) {
   const session = await getSession(sessionId);
@@ -916,9 +1166,174 @@ function contentTypeFor(fileType) {
   return map[ext] || "application/octet-stream";
 }
 
-// server/routes/drive.ts
+// server/routes/fonts.ts
 import fs4 from "node:fs/promises";
 import path5 from "node:path";
+var MAX_FONT_UPLOAD_BYTES = 80 * 1024 * 1024;
+var FONT_EXTENSIONS = /* @__PURE__ */ new Set([".ttf", ".otf", ".ttc"]);
+async function handleFontList(_request, response, config2) {
+  await ensureFontDirs(config2);
+  const entries = await fs4.readdir(config2.fontsDir, { withFileTypes: true });
+  const items = await Promise.all(
+    entries.filter((entry) => entry.isFile() && FONT_EXTENSIONS.has(path5.extname(entry.name).toLowerCase())).map(async (entry) => {
+      const stats = await fs4.stat(path5.join(config2.fontsDir, entry.name));
+      return {
+        name: entry.name,
+        size: stats.size,
+        updatedAt: stats.mtime.toISOString()
+      };
+    })
+  );
+  items.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  sendJson(response, 200, {
+    items,
+    lastRefreshAt: await readLastRefreshAt(config2),
+    logs: await readFontRefreshLogs(config2)
+  });
+}
+async function handleFontUpload(request, response, config2) {
+  await ensureFontDirs(config2);
+  const boundary = parseMultipartBoundary(request.headers["content-type"] || "");
+  if (!boundary) {
+    throw new HttpError(400, "invalid_upload", "\u8BF7\u4F7F\u7528 multipart/form-data \u4E0A\u4F20\u5B57\u4F53\u6587\u4EF6\u3002");
+  }
+  const body = await readLimitedBody(request, MAX_FONT_UPLOAD_BYTES);
+  const file = parseMultipartFile(body, boundary);
+  const originalName = sanitizeFontFileName(file.filename);
+  validateFontFile(originalName, file.content);
+  const targetPath = path5.join(config2.fontsDir, originalName);
+  await fs4.writeFile(targetPath, file.content, { mode: 420 });
+  const stats = await fs4.stat(targetPath);
+  sendJson(response, 201, {
+    item: {
+      name: originalName,
+      size: stats.size,
+      updatedAt: stats.mtime.toISOString()
+    }
+  });
+}
+async function handleFontRefresh(_request, response, config2) {
+  await ensureFontDirs(config2);
+  const refreshRequestedAt = (/* @__PURE__ */ new Date()).toISOString();
+  await fs4.writeFile(path5.join(config2.fontRefreshDir, "request"), refreshRequestedAt);
+  sendJson(response, 200, { ok: true, refreshRequestedAt });
+}
+async function handleFontDelete(fontName, _request, response, config2) {
+  await ensureFontDirs(config2);
+  const safeName = sanitizeFontFileName(fontName);
+  const targetPath = path5.join(config2.fontsDir, safeName);
+  await fs4.rm(targetPath, { force: true });
+  sendJson(response, 200, { ok: true });
+}
+async function ensureFontDirs(config2) {
+  await fs4.mkdir(config2.fontsDir, { recursive: true });
+  await fs4.mkdir(config2.fontRefreshDir, { recursive: true });
+}
+async function readLastRefreshAt(config2) {
+  try {
+    return (await fs4.readFile(path5.join(config2.fontRefreshDir, "last-success"), "utf8")).trim() || null;
+  } catch {
+    return null;
+  }
+}
+async function readFontRefreshLogs(config2) {
+  try {
+    const raw = await fs4.readFile(path5.join(config2.fontRefreshDir, "fonts.log"), "utf8");
+    return raw.trim().split("\n").slice(-80);
+  } catch {
+    return [];
+  }
+}
+function parseMultipartBoundary(contentType2) {
+  const match = contentType2.match(/(?:^|;)\s*boundary=(?:("([^"]+)")|([^;]+))/i);
+  return (match?.[2] || match?.[3] || "").trim() || null;
+}
+async function readLimitedBody(request, limit) {
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += buffer.length;
+    if (total > limit) {
+      throw new HttpError(413, "upload_too_large", "\u5B57\u4F53\u6587\u4EF6\u8FC7\u5927\uFF0C\u8BF7\u4E0A\u4F20 80MB \u4EE5\u5185\u7684\u5B57\u4F53\u6587\u4EF6\u3002");
+    }
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks);
+}
+function parseMultipartFile(body, boundary) {
+  const delimiter = Buffer.from(`--${boundary}`);
+  let offset = 0;
+  while (offset < body.length) {
+    const partStart = body.indexOf(delimiter, offset);
+    if (partStart < 0) {
+      break;
+    }
+    const headersStart = partStart + delimiter.length;
+    if (body.subarray(headersStart, headersStart + 2).toString() === "--") {
+      break;
+    }
+    const contentStart = body.indexOf(Buffer.from("\r\n\r\n"), headersStart);
+    if (contentStart < 0) {
+      break;
+    }
+    const headers = body.subarray(headersStart, contentStart).toString("utf8");
+    const filename = parseContentDispositionFilename(headers);
+    const nextPart = body.indexOf(delimiter, contentStart + 4);
+    if (nextPart < 0) {
+      break;
+    }
+    if (filename) {
+      let contentEnd = nextPart;
+      if (contentEnd >= 2 && body[contentEnd - 2] === 13 && body[contentEnd - 1] === 10) {
+        contentEnd -= 2;
+      }
+      return { filename, content: body.subarray(contentStart + 4, contentEnd) };
+    }
+    offset = nextPart;
+  }
+  throw new HttpError(400, "missing_font_file", "\u8BF7\u4E0A\u4F20\u4E00\u4E2A\u5B57\u4F53\u6587\u4EF6\u3002");
+}
+function parseContentDispositionFilename(headers) {
+  const disposition = headers.split("\r\n").find((line) => line.toLowerCase().startsWith("content-disposition:")) || "";
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1].trim().replace(/^"|"$/g, ""));
+  }
+  const match = disposition.match(/filename="([^"]+)"|filename=([^;]+)/i);
+  return (match?.[1] || match?.[2] || "").trim() || null;
+}
+function sanitizeFontFileName(input) {
+  const baseName = path5.basename(input).trim().replace(/[\\/:*?"<>|\0]/g, "_");
+  if (!baseName || baseName === "." || baseName === "..") {
+    throw new HttpError(400, "invalid_font_name", "\u5B57\u4F53\u6587\u4EF6\u540D\u65E0\u6548\u3002");
+  }
+  if (!FONT_EXTENSIONS.has(path5.extname(baseName).toLowerCase())) {
+    throw new HttpError(400, "unsupported_font_type", "\u4EC5\u652F\u6301 .ttf\u3001.otf\u3001.ttc \u5B57\u4F53\u6587\u4EF6\u3002");
+  }
+  return baseName;
+}
+function validateFontFile(filename, content) {
+  if (!content.length) {
+    throw new HttpError(400, "empty_font_file", "\u5B57\u4F53\u6587\u4EF6\u4E0D\u80FD\u4E3A\u7A7A\u3002");
+  }
+  const extension = path5.extname(filename).toLowerCase();
+  const signature = content.subarray(0, 4).toString("latin1");
+  const isTrueType = content.length >= 4 && content[0] === 0 && content[1] === 1 && content[2] === 0 && content[3] === 0;
+  const isOpenType = signature === "OTTO";
+  const isTrueTypeCollection = signature === "ttcf";
+  const isAppleTrueType = signature === "true";
+  if (extension === ".ttc" && !isTrueTypeCollection) {
+    throw new HttpError(400, "invalid_font_file", "\u5B57\u4F53\u6587\u4EF6\u683C\u5F0F\u4E0E\u6269\u5C55\u540D\u4E0D\u5339\u914D\u3002");
+  }
+  if ((extension === ".ttf" || extension === ".otf") && !isTrueType && !isOpenType && !isAppleTrueType) {
+    throw new HttpError(400, "invalid_font_file", "\u5B57\u4F53\u6587\u4EF6\u683C\u5F0F\u4E0E\u6269\u5C55\u540D\u4E0D\u5339\u914D\u3002");
+  }
+}
+
+// server/routes/drive.ts
+import fs5 from "node:fs/promises";
+import path6 from "node:path";
 var SUPPORTED_EXTENSIONS = /* @__PURE__ */ new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "odt", "ods", "odp"]);
 var SHARED_CENTER_PATH = ".shared-center";
 var FILE_SERVICE_ROOT_BY_SCOPE = {
@@ -927,15 +1342,15 @@ var FILE_SERVICE_ROOT_BY_SCOPE = {
 };
 async function handleDriveList(request, response, config2, requestedPath = "", rawScope = "all") {
   const scope = normalizeScope(rawScope);
-  if (scope === "all" || scope === "shared") {
+  if (scope === "all" || scope === "shared" || scope === "client") {
     return handleLocalDriveList(response, config2, requestedPath, scope, resolveDriveOwnerUid(request, config2));
   }
   return handleFileServiceDriveList(request, response, config2, requestedPath, scope);
 }
 async function handleLocalDriveList(response, config2, requestedPath, scope, ownerUid) {
   const relativePath = resolveLocalDrivePath(requestedPath, scope);
-  const targetPath = resolveHomeFilePath(relativePath, config2, ownerUid);
-  const dirents = await fs4.readdir(targetPath, { withFileTypes: true });
+  const targetPath = scope === "client" ? resolveClientfsFilePath(relativePath, config2, ownerUid) : resolveHomeFilePath(relativePath, config2, ownerUid);
+  const dirents = await fs5.readdir(targetPath, { withFileTypes: true });
   const entries = await Promise.all(dirents.map((dirent) => toLocalDriveEntry(dirent, relativePath, targetPath, scope)));
   const visibleEntries = entries.filter((entry) => Boolean(entry)).filter((entry) => scope === "shared" || !entry.name.startsWith(".")).map((entry) => scope === "shared" ? { ...entry, path: toClientLocalDrivePath(entry.path, scope) } : entry).sort(compareEntries);
   sendJson(response, 200, {
@@ -1027,37 +1442,37 @@ async function fetchFileServiceDirectory(origin, targetPath, cookie) {
   }
 }
 function normalizeScope(input) {
-  if (input === "shared" || input === "external" || input === "mount") {
+  if (input === "shared" || input === "external" || input === "mount" || input === "client") {
     return input;
   }
   return "all";
 }
 async function toLocalDriveEntry(dirent, currentPath, targetPath, scope) {
-  if (!dirent.isDirectory() && !dirent.isFile()) {
+  const entryPath = joinDrivePath(currentPath, dirent.name);
+  const stats = await fs5.stat(path6.join(targetPath, dirent.name)).catch(() => null);
+  if (!stats || !stats.isDirectory() && !stats.isFile()) {
     return null;
   }
-  const entryPath = joinDrivePath(currentPath, dirent.name);
-  const stats = await fs4.stat(path5.join(targetPath, dirent.name));
-  const fileType = dirent.isFile() ? path5.posix.extname(dirent.name).replace(/^\./, "").toLowerCase() : "";
+  const fileType = stats.isFile() ? path6.posix.extname(dirent.name).replace(/^\./, "").toLowerCase() : "";
   return {
     name: dirent.name,
     path: entryPath,
-    type: dirent.isDirectory() ? "directory" : "file",
-    size: dirent.isFile() ? stats.size : 0,
+    type: stats.isDirectory() ? "directory" : "file",
+    size: stats.isFile() ? stats.size : 0,
     modifiedAt: stats.mtime.toISOString(),
     fileType,
-    supported: dirent.isFile() && SUPPORTED_EXTENSIONS.has(fileType),
+    supported: stats.isFile() && SUPPORTED_EXTENSIONS.has(fileType),
     source: scope
   };
 }
 function toFileServiceDriveEntry(entry, scope) {
   const type = entry.type === "directory" ? "directory" : entry.type === "file" ? "file" : null;
   const entryPath = normalizeReturnedFileServicePath(entry.filename || "", FILE_SERVICE_ROOT_BY_SCOPE[scope]);
-  const name = entry.basename || path5.posix.basename(entryPath);
+  const name = entry.basename || path6.posix.basename(entryPath);
   if (!type || !entryPath || !name) {
     return null;
   }
-  const fileType = type === "file" ? path5.posix.extname(name).replace(/^\./, "").toLowerCase() : "";
+  const fileType = type === "file" ? path6.posix.extname(name).replace(/^\./, "").toLowerCase() : "";
   return {
     name,
     path: entryPath,
@@ -1073,12 +1488,12 @@ function toFileServiceDriveEntry(entry, scope) {
   };
 }
 function normalizeDrivePath(input) {
-  return path5.posix.normalize(`/${input.replace(/\\/g, "/")}`).replace(/^\/+/, "").replace(/^\.$/, "");
+  return path6.posix.normalize(`/${input.replace(/\\/g, "/")}`).replace(/^\/+/, "").replace(/^\.$/, "");
 }
 function normalizeFileServicePath(input, rootPath) {
   const raw = input.replace(/\0/g, "").replace(/\\/g, "/");
   const absolutePath = raw.startsWith("/") ? raw : joinDrivePath(rootPath, raw);
-  const normalized = path5.posix.normalize(absolutePath);
+  const normalized = path6.posix.normalize(absolutePath);
   if (normalized !== rootPath && !normalized.startsWith(`${rootPath}/`)) {
     throw new HttpError(400, "unsafe_drive_path", "Drive path escapes the selected Lazycat drive scope.");
   }
@@ -1097,14 +1512,14 @@ function getLocalParentPath(input) {
   if (!input) {
     return "";
   }
-  const parent = path5.posix.dirname(input);
+  const parent = path6.posix.dirname(input);
   return parent === "." ? "" : parent;
 }
 function getFileServiceParentPath(input, rootPath) {
   if (!input || input === rootPath) {
     return "";
   }
-  const parent = path5.posix.dirname(input);
+  const parent = path6.posix.dirname(input);
   return parent === rootPath ? "" : parent;
 }
 function normalizeLastModified(value) {
@@ -1143,17 +1558,96 @@ function compareEntries(a, b) {
   return a.name.localeCompare(b.name, "zh-CN", { numeric: true, sensitivity: "base" });
 }
 
+// server/db/online-url-store.ts
+import crypto3 from "node:crypto";
+var ONLINE_URL_STORE = "online_url_history";
+function collection3() {
+  return getCollection(ONLINE_URL_STORE);
+}
+async function touchOnlineUrlHistory(ownerUid, url, title) {
+  const record = buildOnlineUrlRecord(ownerUid, url, title);
+  try {
+    await collection3().upsert(record);
+    return record;
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+    const items = await readJsonArray(ONLINE_URL_STORE);
+    const nextItems = [record, ...items.filter((item) => item.id !== record.id)].slice(0, 500);
+    await writeJsonArray(ONLINE_URL_STORE, nextItems);
+    return record;
+  }
+}
+async function listOnlineUrlHistory(ownerUid, limit = 20) {
+  try {
+    const items = await collection3().find({ ownerUid }, { sort: ["-openedAt"] }).fetch();
+    return items.slice(0, limit);
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+    const items = await readJsonArray(ONLINE_URL_STORE);
+    return items.filter((item) => item.ownerUid === ownerUid).sort((left, right) => right.openedAt.localeCompare(left.openedAt)).slice(0, limit);
+  }
+}
+function buildOnlineUrlRecord(ownerUid, url, title) {
+  return {
+    id: createOnlineUrlHistoryId(ownerUid, url),
+    ownerUid,
+    url,
+    title,
+    openedAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function createOnlineUrlHistoryId(ownerUid, url) {
+  return crypto3.createHash("sha256").update(`${ownerUid}
+${url}`).digest("hex").slice(0, 32);
+}
+
+// server/routes/online-url.ts
+async function handleOnlineUrlHistory(request, response, config2) {
+  const user = resolveRequestUser(request, config2);
+  const items = await listOnlineUrlHistory(user.id);
+  sendJson(response, 200, { items });
+}
+async function handleTouchOnlineUrlHistory(request, response, config2) {
+  const user = resolveRequestUser(request, config2);
+  const body = await readJsonBody(request);
+  const url = body.url?.trim();
+  if (!url) {
+    throw new HttpError(400, "missing_online_url", "Missing online URL.");
+  }
+  const title = body.title?.trim() || resolveOnlineUrlTitle(url);
+  const item = await touchOnlineUrlHistory(user.id, url, title);
+  sendJson(response, 200, { item });
+}
+function resolveOnlineUrlTitle(input) {
+  try {
+    const url = new URL(input);
+    const pathName = decodeURIComponent(url.pathname.split("/").filter(Boolean).pop() || "");
+    const queryName = url.searchParams.get("filename") || url.searchParams.get("name") || "";
+    return sanitizeOnlineUrlTitle(pathName || queryName || input);
+  } catch {
+    return sanitizeOnlineUrlTitle(input);
+  }
+}
+function sanitizeOnlineUrlTitle(input) {
+  const title = input.trim().replace(/[\\/:*?"<>|\0]/g, "_");
+  return title || "\u5728\u7EBF\u6587\u6863";
+}
+
 // server/static.ts
-import fs5 from "node:fs";
-import path6 from "node:path";
-var FRONTEND_DIST = path6.resolve(process.env.FRONTEND_DIST || "dist/frontend");
+import fs6 from "node:fs";
+import path7 from "node:path";
+var FRONTEND_DIST = path7.resolve(process.env.FRONTEND_DIST || "dist/frontend");
 function serveStatic(urlPath, response) {
   const normalizedPath = urlPath === "/" ? "/index.html" : urlPath;
-  const target = path6.resolve(FRONTEND_DIST, `.${normalizedPath}`);
+  const target = path7.resolve(FRONTEND_DIST, `.${normalizedPath}`);
   if (!target.startsWith(FRONTEND_DIST)) return false;
-  if (!fs5.existsSync(target) || !fs5.statSync(target).isFile()) return false;
+  if (!fs6.existsSync(target) || !fs6.statSync(target).isFile()) return false;
   response.writeHead(200, { "content-type": contentType(target) });
-  fs5.createReadStream(target).pipe(response);
+  fs6.createReadStream(target).pipe(response);
   return true;
 }
 function serveFrontendFallback(response) {
@@ -1181,17 +1675,39 @@ function createServer(config2) {
       if (request.method === "POST" && url.pathname === "/api/editor/session") {
         return await handleEditorSession(request, response, config2);
       }
+      if (request.method === "POST" && url.pathname.startsWith("/api/editor/session/") && url.pathname.endsWith("/release")) {
+        const sessionId = decodeURIComponent(url.pathname.slice("/api/editor/session/".length, -"/release".length));
+        return await handleReleaseEditorSession(sessionId, request, response);
+      }
       if (request.method === "GET" && url.pathname === "/api/recent") {
-        return await handleRecentFiles(response);
+        return await handleRecentFiles(request, response, config2);
       }
       if (request.method === "DELETE" && url.pathname === "/api/recent") {
-        return await handleClearRecentFiles(response);
+        return await handleClearRecentFiles(request, response, config2);
       }
       if (request.method === "DELETE" && url.pathname.startsWith("/api/recent/")) {
-        return await handleDeleteRecentFile(decodeURIComponent(url.pathname.slice("/api/recent/".length)), response);
+        return await handleDeleteRecentFile(decodeURIComponent(url.pathname.slice("/api/recent/".length)), request, response, config2);
+      }
+      if (request.method === "GET" && url.pathname === "/api/online-url/history") {
+        return await handleOnlineUrlHistory(request, response, config2);
+      }
+      if (request.method === "POST" && url.pathname === "/api/online-url/history") {
+        return await handleTouchOnlineUrlHistory(request, response, config2);
       }
       if (request.method === "GET" && url.pathname === "/api/drive/list") {
         return await handleDriveList(request, response, config2, url.searchParams.get("path") || "", url.searchParams.get("scope") || "all");
+      }
+      if (request.method === "GET" && url.pathname === "/api/fonts") {
+        return await handleFontList(request, response, config2);
+      }
+      if (request.method === "POST" && url.pathname === "/api/fonts") {
+        return await handleFontUpload(request, response, config2);
+      }
+      if (request.method === "POST" && url.pathname === "/api/fonts/refresh") {
+        return await handleFontRefresh(request, response, config2);
+      }
+      if (request.method === "DELETE" && url.pathname.startsWith("/api/fonts/")) {
+        return await handleFontDelete(decodeURIComponent(url.pathname.slice("/api/fonts/".length)), request, response, config2);
       }
       if ((request.method === "GET" || request.method === "HEAD") && url.pathname.startsWith("/download/")) {
         return await handleDownload(

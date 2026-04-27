@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import type { LazycatDriveEntry, LazycatDriveScope } from '../../../../../shared/drive';
 import { listLazycatDriveFiles } from '../../../lib/api/client';
 import type { LazycatDriveSelection } from '../types';
@@ -7,9 +7,10 @@ const DRIVE_FILTER_STORAGE_KEY = 'onlyoffice.drive.showSupportedOnly';
 
 type LazycatDrivePanelProps = {
   onFileSelected: (selection: LazycatDriveSelection) => void;
+  title?: ReactNode;
 };
 
-export function LazycatDrivePanel({ onFileSelected }: LazycatDrivePanelProps) {
+export function LazycatDrivePanel({ onFileSelected, title }: LazycatDrivePanelProps) {
   const [scope, setScope] = useState<LazycatDriveScope>('all');
   const [currentPath, setCurrentPath] = useState('');
   const [parentPath, setParentPath] = useState('');
@@ -76,7 +77,7 @@ export function LazycatDrivePanel({ onFileSelected }: LazycatDrivePanelProps) {
     }
 
     onFileSelected({
-      fileUrl: entry.path,
+      fileUrl: resolveOpenFileUrl(entry),
       file: entry,
       fileList: displayedEntries,
       detail: [entry]
@@ -86,7 +87,7 @@ export function LazycatDrivePanel({ onFileSelected }: LazycatDrivePanelProps) {
   return (
     <section className="panel file-panel">
       <div className="panel-title-row drive-title-row">
-        <h2>懒猫网盘</h2>
+        <h2>{title || '懒猫网盘'}</h2>
         <div className="drive-title-actions">
           <div className="drive-filter-tabs" aria-label="文件过滤">
             <button className={`drive-filter-tab${!showSupportedOnly ? ' is-active' : ''}`} type="button" onClick={() => setShowSupportedOnly(false)}>显示全部</button>
@@ -97,6 +98,7 @@ export function LazycatDrivePanel({ onFileSelected }: LazycatDrivePanelProps) {
             <button className={`drive-scope-tab${scope === 'shared' ? ' is-active' : ''}`} type="button" onClick={() => switchScope('shared')}>共享文件</button>
             <button className={`drive-scope-tab${scope === 'external' ? ' is-active' : ''}`} type="button" onClick={() => switchScope('external')}>外接磁盘</button>
             <button className={`drive-scope-tab${scope === 'mount' ? ' is-active' : ''}`} type="button" onClick={() => switchScope('mount')}>网络挂载</button>
+            <button className={`drive-scope-tab${scope === 'client' ? ' is-active' : ''}`} type="button" onClick={() => switchScope('client')}>客户端文件</button>
           </div>
         </div>
       </div>
@@ -138,6 +140,20 @@ export function LazycatDrivePanel({ onFileSelected }: LazycatDrivePanelProps) {
   );
 }
 
+function resolveOpenFileUrl(entry: LazycatDriveEntry): string {
+  if (entry.source === 'client') {
+    return `clientfs:${entry.path}`;
+  }
+
+  if (entry.source !== 'shared') {
+    return entry.path;
+  }
+
+  return entry.path.startsWith('.shared-center/') || entry.path === '.shared-center'
+    ? entry.path
+    : `.shared-center/${entry.path}`;
+}
+
 function DriveIcon({ entry }: { entry: LazycatDriveEntry }) {
   if (entry.type === 'directory') {
     return <span className="drive-icon drive-icon-folder" aria-hidden="true" />;
@@ -157,6 +173,7 @@ function getScopeLabel(scope: LazycatDriveScope): string {
   if (scope === 'shared') return '共享文件';
   if (scope === 'external') return '外接磁盘';
   if (scope === 'mount') return '网络挂载';
+  if (scope === 'client') return '客户端文件';
   return '全部文件';
 }
 

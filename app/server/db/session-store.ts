@@ -40,3 +40,45 @@ export async function getSession(id: string): Promise<EditorSessionRecord | unde
     return sessions.find((session) => session.id === id);
   }
 }
+
+export async function findActiveEditSession(documentIdentity: string, userId: string): Promise<EditorSessionRecord | undefined> {
+  try {
+    const sessions = await collection().find({
+      documentIdentity,
+      mode: 'edit',
+      state: 'active'
+    }).fetch();
+    return sessions.find((session) => session.user.id === userId);
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+
+    const sessions = await readJsonArray<EditorSessionRecord>(SESSIONS_STORE);
+    return sessions.find((session) => (
+      session.documentIdentity === documentIdentity
+      && session.user.id === userId
+      && session.mode === 'edit'
+      && session.state === 'active'
+    ));
+  }
+}
+
+export async function updateSession(session: EditorSessionRecord): Promise<void> {
+  await saveSession(session);
+}
+
+export async function releaseActiveSession(id: string): Promise<void> {
+  const session = await getSession(id);
+  if (!session || session.state !== 'active') {
+    return;
+  }
+
+  const releasedAt = new Date().toISOString();
+  await updateSession({
+    ...session,
+    state: 'released',
+    updatedAt: releasedAt,
+    releasedAt
+  });
+}

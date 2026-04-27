@@ -1,13 +1,15 @@
+import type { ReactNode } from 'react';
 import type { RecentFileRecord } from '../../../../../shared/recent';
 
 type RecentFilesPanelProps = {
   items: RecentFileRecord[];
   onDeleteItem: (id: string) => Promise<void> | void;
   onClear: () => Promise<void> | void;
+  title?: ReactNode;
 };
 
-export function RecentFilesPanel({ items, onDeleteItem, onClear }: RecentFilesPanelProps) {
-  const visibleItems = items.slice(0, 12);
+export function RecentFilesPanel({ items, onDeleteItem, onClear, title }: RecentFilesPanelProps) {
+  const visibleItems = items.slice(0, 20);
 
   const clearRecent = async () => {
     if (!items.length || !window.confirm('确定要清空所有最近访问记录吗？')) {
@@ -25,26 +27,33 @@ export function RecentFilesPanel({ items, onDeleteItem, onClear }: RecentFilesPa
     await onDeleteItem(item.id);
   };
 
+  const openRecent = (item: RecentFileRecord) => {
+    window.open(`/open?url=${encodeURIComponent(item.fileUrl)}`, '_blank', 'noopener,noreferrer');
+  };
+
   return (
       <aside className="panel recent-panel is-pinned">
         <div className="panel-title-row">
           <div>
-            <h2>最近访问</h2>
+            <h2>{title || '最近访问'}</h2>
             <div className="recent-subtitle">{items.length ? `${items.length} 个最近打开的文件` : '暂无最近打开的文件'}</div>
           </div>
           <button className="recent-clear-button" type="button" disabled={!items.length} onClick={clearRecent}>清理</button>
         </div>
         <div className="recent-list">
           {visibleItems.length === 0 ? <div className="empty recent-empty">暂无最近访问文件</div> : visibleItems.map((item) => (
-            <div className="recent-item" key={item.id}>
-              <a className="recent-file-link" href={`/open?url=${encodeURIComponent(item.fileUrl)}`}>
+            <div className="recent-item" key={item.id} onClick={() => openRecent(item)}>
+              <button className="recent-file-link" type="button">
                 <span className="recent-file-icon">{getRecentFileIcon(item.fileType)}</span>
                 <span className="recent-file-main">
                   <span className="recent-file-title">{item.title}</span>
-                  <small>{item.relativePath}</small>
+                  <small>{item.source === 'url' ? item.fileUrl : item.relativePath}</small>
                 </span>
-              </a>
-              <button className="recent-delete-button" type="button" aria-label={`删除 ${item.title} 的最近访问记录`} onClick={() => deleteRecent(item)}>
+              </button>
+              <button className="recent-delete-button" type="button" aria-label={`删除 ${item.title} 的最近访问记录`} onClick={(event) => {
+                event.stopPropagation();
+                deleteRecent(item);
+              }}>
                 <span aria-hidden="true">×</span>
               </button>
             </div>

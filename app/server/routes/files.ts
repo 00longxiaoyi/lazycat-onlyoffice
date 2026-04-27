@@ -3,7 +3,7 @@ import { pipeline } from 'node:stream/promises';
 import type { AppConfig } from '../config';
 import { HttpError } from '../errors';
 import { getSession } from '../db/session-store';
-import { createReadStreamForRelativePath, resolveHomeFilePath, saveFromUrl } from '../services/file-store';
+import { createReadStreamForRelativePath, resolveClientfsFilePath, resolveHomeFilePath, saveFromUrl } from '../services/file-store';
 import { readJsonBody, sendJson } from '../utils/http';
 
 interface OnlyOfficeCallbackPayload {
@@ -23,11 +23,17 @@ export async function handleDownload(
 ): Promise<void> {
   const session = await getRequiredSession(sessionId);
 
-  if (session.fileOrigin) {
+  if (session.storageType === 'remote-url') {
     return proxyOriginalFileDownload(session, request, response, headOnly);
   }
 
-  const resolvedPath = resolveHomeFilePath(session.relativePath, config, session.ownerUid);
+  if (session.storageType === 'lazycat-file' || session.fileOrigin) {
+    return proxyOriginalFileDownload(session, request, response, headOnly);
+  }
+
+  const resolvedPath = session.storageType === 'clientfs'
+    ? resolveClientfsFilePath(session.relativePath, config, session.ownerUid)
+    : resolveHomeFilePath(session.relativePath, config, session.ownerUid);
   const stats = await import('node:fs').then((fs) => fs.promises.stat(resolvedPath));
   console.log('[download] local request', {
     sessionId,
@@ -61,7 +67,13 @@ export async function handleDownload(
     return;
   }
 
-  const stream = createReadStreamForRelativePath(session.relativePath, config, range || undefined, session.ownerUid);
+  const stream = createReadStreamForRelativePath(
+    session.relativePath,
+    config,
+    range || undefined,
+    session.ownerUid,
+    session.storageType === 'clientfs' ? 'clientfs' : 'home'
+  );
   stream.pipe(response);
 }
 
@@ -75,7 +87,7 @@ async function proxyOriginalFileDownload(
     method: headOnly ? 'HEAD' : 'GET',
     headers: {
       ...(request.headers.range ? { range: request.headers.range } : {}),
-      ...(session.requestCookie ? { cookie: session.requestCookie } : {})
+      ...(session.storageType === 'lazycat-file' && session.requestCookie ? { cookie: session.requestCookie } : {})
     }
   });
 
@@ -164,7 +176,46 @@ export async function handleCallback(sessionId: string, request: IncomingMessage
   });
 
   if ((status === 2 || status === 6) && payload.url) {
-    await saveFromUrl(payload.url, session.relativePath, config, session.ownerUid);
+    if (session.mode !== 'edit' || session.state !== 'active') {
+      console.warn('[callback] ignored inactive editor session save', {
+        sessionId,
+        status,
+        mode: session.mode,
+        state: session.state,
+        supersededBy: session.supersededBy
+      });
+      return sendJson(response, 200, { error: 0 });
+    }
+
+    if (session.storageType === 'remote-url') {
+      await saveRemoteDocumentFromUrl(payload.url, session.originalUrl, session.fileType);
+      console.log('[callback] saved remote document', {
+        sessionId,
+        status,
+        title: session.title,
+        source: session.originalUrl
+      });
+      return sendJson(response, 200, { error: 0 });
+    }
+
+    try {
+      await saveFromUrl(
+        payload.url,
+        session.relativePath,
+        config,
+        session.ownerUid,
+        session.storageType === 'clientfs' ? 'clientfs' : 'home'
+      );
+    } catch (error) {
+      console.error('[callback] failed to save document', {
+        sessionId,
+        storageType: session.storageType,
+        relativePath: session.relativePath,
+        ownerUid: session.ownerUid,
+        error: error instanceof Error ? error.message : String(error)
+      });
+      throw error;
+    }
     console.log('[callback] saved document', {
       sessionId,
       status,
@@ -175,6 +226,27 @@ export async function handleCallback(sessionId: string, request: IncomingMessage
   }
 
   sendJson(response, 200, { error: 0 });
+}
+
+async function saveRemoteDocumentFromUrl(sourceUrl: string, targetUrl: string, fileType: string): Promise<void> {
+  const download = await fetch(sourceUrl);
+  if (!download.ok) {
+    throw new HttpError(502, 'callback_download_failed', `Failed to download saved document: ${download.status}`);
+  }
+
+  const body = Buffer.from(await download.arrayBuffer());
+  const upload = await fetch(targetUrl, {
+    method: 'PUT',
+    headers: {
+      'content-type': download.headers.get('content-type') || contentTypeFor(fileType),
+      'content-length': String(body.byteLength)
+    },
+    body
+  });
+
+  if (!upload.ok) {
+    throw new HttpError(upload.status, 'remote_writeback_failed', `Remote URL writeback failed: ${upload.status}`);
+  }
 }
 
 async function getRequiredSession(sessionId: string) {

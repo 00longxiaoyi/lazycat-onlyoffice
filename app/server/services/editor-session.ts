@@ -1,11 +1,12 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { EditorSessionRecord, EditorSessionRequest, EditorSessionResponse, EditorUser, OnlyOfficeConfig } from '../../shared/editor';
+import { HttpError } from '../errors';
+import type { EditorSessionMode, EditorSessionRecord, EditorSessionRequest, EditorSessionResponse, EditorUser, OnlyOfficeConfig } from '../../shared/editor';
 import { normalizeLazycatFileUrl } from './file-url';
 import { getDocumentType } from './document-type';
 import { createDocumentKey, createSessionId } from './token';
-import { resolveHomeFilePath } from './file-store';
-import { saveSession } from '../db/session-store';
+import { resolveClientfsFilePath, resolveHomeFilePath } from './file-store';
+import { findActiveEditSession, saveSession, updateSession } from '../db/session-store';
 import { touchRecentFile } from '../db/recent-store';
 import type { AppConfig } from '../config';
 
@@ -24,8 +25,36 @@ export async function createEditorSessionWithCookie(
   const now = new Date().toISOString();
   const id = createSessionId();
   const ownerUid = options.user.id;
-  const documentIdentity = await resolveDocumentIdentity(normalized.relativePath, ownerUid, config);
-  const documentKey = createDocumentKey(documentIdentity);
+  const documentIdentity = normalized.storageType === 'remote-url'
+    ? `remote-url:${normalized.originalUrl}`
+    : await resolveDocumentIdentity(normalized.relativePath, ownerUid, config, normalized.storageType === 'clientfs' ? 'clientfs' : 'home');
+  const requestedMode: EditorSessionMode = request.mode === 'view' ? 'view' : 'edit';
+  const activeSession = requestedMode === 'edit'
+    ? await findActiveEditSession(documentIdentity, options.user.id)
+    : undefined;
+
+  if (activeSession && !request.takeover) {
+    throw new HttpError(409, 'editor_session_conflict', '你已在其他窗口或设备编辑此文件。', {
+      conflict: {
+        sessionId: activeSession.id,
+        title: activeSession.title,
+        updatedAt: activeSession.updatedAt
+      }
+    });
+  }
+
+  if (activeSession && request.takeover) {
+    const supersededAt = now;
+    await updateSession({
+      ...activeSession,
+      state: 'superseded',
+      updatedAt: supersededAt,
+      supersededAt,
+      supersededBy: id
+    });
+  }
+
+  const documentKey = createDocumentKey(`${documentIdentity}:${id}`);
 
   const session: EditorSessionRecord = {
     ...normalized,
@@ -35,6 +64,9 @@ export async function createEditorSessionWithCookie(
     createdAt: now,
     updatedAt: now,
     source: request.source || 'manual',
+    mode: requestedMode,
+    state: 'active',
+    documentIdentity,
     documentKey,
     requestCookie: options.requestCookie,
     user: options.user
@@ -49,9 +81,10 @@ export async function createEditorSessionWithCookie(
   };
 }
 
-async function resolveDocumentIdentity(relativePath: string, ownerUid: string, config: AppConfig): Promise<string> {
+
+async function resolveDocumentIdentity(relativePath: string, ownerUid: string, config: AppConfig, root: 'home' | 'clientfs'): Promise<string> {
   try {
-    const target = resolveHomeFilePath(relativePath, config, ownerUid);
+    const target = root === 'clientfs' ? resolveClientfsFilePath(relativePath, config, ownerUid) : resolveHomeFilePath(relativePath, config, ownerUid);
     const [stats, realPath] = await Promise.all([
       fs.stat(target),
       fs.realpath(target).catch(() => target)
@@ -63,7 +96,9 @@ async function resolveDocumentIdentity(relativePath: string, ownerUid: string, c
         return mountedIdentity;
       }
 
-      const documentPathIdentity = resolveDocumentPathIdentity(realPath, target, config);
+      const documentPathIdentity = root === 'clientfs'
+        ? `clientfs-path:/${relativePath}`
+        : resolveDocumentPathIdentity(realPath, target, config);
       if (documentPathIdentity) {
         return documentPathIdentity;
       }
@@ -78,7 +113,7 @@ async function resolveDocumentIdentity(relativePath: string, ownerUid: string, c
     });
   }
 
-  return `path:${relativePath}`;
+  return `${root}:path:${relativePath}`;
 }
 
 function resolveDocumentPathIdentity(realPath: string, targetPath: string, config: AppConfig): string {
@@ -216,6 +251,7 @@ function buildOnlyOfficeConfig(session: EditorSessionRecord, config: AppConfig):
   const documentServiceOrigin = config.documentServerPublicOrigin || config.appOrigin;
   const downloadUrl = `${documentServiceOrigin}/download/${encodeURIComponent(session.id)}`;
   const callbackUrl = `${documentServiceOrigin}/callback/${encodeURIComponent(session.id)}`;
+  const canEdit = session.mode === 'edit' && session.state === 'active';
 
   return {
     width: '100%',
@@ -228,15 +264,15 @@ function buildOnlyOfficeConfig(session: EditorSessionRecord, config: AppConfig):
       fileType: session.fileType,
       key: session.documentKey,
       permissions: {
-        edit: true,
+        edit: canEdit,
         download: true,
         print: true,
-        review: true,
-        comment: true
+        review: canEdit,
+        comment: canEdit
       }
     },
     editorConfig: {
-      mode: 'edit',
+      mode: canEdit ? 'edit' : 'view',
       lang: 'zh-CN',
       callbackUrl,
       user: session.user,

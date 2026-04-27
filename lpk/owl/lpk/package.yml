@@ -1,0 +1,23 @@
+package: community.czyt.app.owl
+version: 0.1.9
+name: Owl
+description: >-
+  A document management and search application with Redis-powered full-text
+  search
+min_os_version: 1.5.0
+author: czyt
+license: MIT
+homepage: https://github.com/czyt/owl
+locales:
+  zh:
+    name: Owl词典
+    description: Owl 是一个支持 MDX / MDD 词典文件的 Web 词典应用
+  en:
+    name: Owl Dictionary
+    description: >-
+      Owl is a web dictionary application for MDX / MDD files with a Go backend
+      and a modern React frontend that is embedded into the Go server for
+      single-binary deployment.
+permissions:
+  required:
+    - net.internet

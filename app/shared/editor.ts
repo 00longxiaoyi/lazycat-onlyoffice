@@ -8,8 +8,13 @@ export interface EditorUser {
 }
 
 export interface EditorSessionRequest extends LazycatFileInput {
-  mode?: 'edit';
+  mode?: 'edit' | 'view';
+  takeover?: boolean;
 }
+
+export type EditorSessionMode = 'edit' | 'view';
+
+export type EditorSessionState = 'active' | 'released' | 'superseded';
 
 export interface EditorSessionRecord extends NormalizedLazycatFile {
   id: string;
@@ -17,9 +22,15 @@ export interface EditorSessionRecord extends NormalizedLazycatFile {
   createdAt: string;
   updatedAt: string;
   source: OpenSource;
+  mode: EditorSessionMode;
+  state: EditorSessionState;
+  documentIdentity: string;
   documentKey: string;
   requestCookie?: string;
   user: EditorUser;
+  supersededBy?: string;
+  supersededAt?: string;
+  releasedAt?: string;
 }
 
 export interface OnlyOfficeConfig {
@@ -41,7 +52,7 @@ export interface OnlyOfficeConfig {
     };
   };
   editorConfig: {
-    mode: 'edit';
+    mode: 'edit' | 'view';
     lang: string;
     callbackUrl: string;
     user: EditorUser;
@@ -56,4 +67,16 @@ export interface OnlyOfficeConfig {
 export interface EditorSessionResponse {
   session: EditorSessionRecord;
   config: OnlyOfficeConfig;
+}
+
+export interface EditorSessionConflictResponse {
+  error: {
+    code: 'editor_session_conflict';
+    message: string;
+  };
+  conflict: {
+    sessionId: string;
+    title: string;
+    updatedAt: string;
+  };
 }

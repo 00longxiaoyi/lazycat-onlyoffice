@@ -4,7 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { LazycatDriveEntry, LazycatDriveListResponse, LazycatDriveScope } from '../../shared/drive';
 import type { AppConfig } from '../config';
 import { HttpError } from '../errors';
-import { resolveHomeFilePath } from '../services/file-store';
+import { resolveClientfsFilePath, resolveHomeFilePath } from '../services/file-store';
 import { sendJson } from '../utils/http';
 
 const SUPPORTED_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'odt', 'ods', 'odp']);
@@ -39,7 +39,7 @@ export async function handleDriveList(
 ): Promise<void> {
   const scope = normalizeScope(rawScope);
 
-  if (scope === 'all' || scope === 'shared') {
+  if (scope === 'all' || scope === 'shared' || scope === 'client') {
     return handleLocalDriveList(response, config, requestedPath, scope, resolveDriveOwnerUid(request, config));
   }
 
@@ -54,7 +54,9 @@ async function handleLocalDriveList(
   ownerUid: string
 ): Promise<void> {
   const relativePath = resolveLocalDrivePath(requestedPath, scope);
-  const targetPath = resolveHomeFilePath(relativePath, config, ownerUid);
+  const targetPath = scope === 'client'
+    ? resolveClientfsFilePath(relativePath, config, ownerUid)
+    : resolveHomeFilePath(relativePath, config, ownerUid);
   const dirents = await fs.readdir(targetPath, { withFileTypes: true });
   const entries = await Promise.all(dirents.map((dirent) => toLocalDriveEntry(dirent, relativePath, targetPath, scope)));
   const visibleEntries = entries
@@ -178,7 +180,7 @@ async function fetchFileServiceDirectory(origin: string, targetPath: string, coo
 }
 
 function normalizeScope(input: string): LazycatDriveScope {
-  if (input === 'shared' || input === 'external' || input === 'mount') {
+  if (input === 'shared' || input === 'external' || input === 'mount' || input === 'client') {
     return input;
   }
 
@@ -191,22 +193,21 @@ async function toLocalDriveEntry(
   targetPath: string,
   scope: LazycatDriveScope
 ): Promise<LazycatDriveEntry | null> {
-  if (!dirent.isDirectory() && !dirent.isFile()) {
+  const entryPath = joinDrivePath(currentPath, dirent.name);
+  const stats = await fs.stat(path.join(targetPath, dirent.name)).catch(() => null);
+  if (!stats || (!stats.isDirectory() && !stats.isFile())) {
     return null;
   }
-
-  const entryPath = joinDrivePath(currentPath, dirent.name);
-  const stats = await fs.stat(path.join(targetPath, dirent.name));
-  const fileType = dirent.isFile() ? path.posix.extname(dirent.name).replace(/^\./, '').toLowerCase() : '';
+  const fileType = stats.isFile() ? path.posix.extname(dirent.name).replace(/^\./, '').toLowerCase() : '';
 
   return {
     name: dirent.name,
     path: entryPath,
-    type: dirent.isDirectory() ? 'directory' : 'file',
-    size: dirent.isFile() ? stats.size : 0,
+    type: stats.isDirectory() ? 'directory' : 'file',
+    size: stats.isFile() ? stats.size : 0,
     modifiedAt: stats.mtime.toISOString(),
     fileType,
-    supported: dirent.isFile() && SUPPORTED_EXTENSIONS.has(fileType),
+    supported: stats.isFile() && SUPPORTED_EXTENSIONS.has(fileType),
     source: scope
   };
 }

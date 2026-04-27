@@ -1,0 +1,86 @@
+# Owl 部署参数配置
+params:
+  # 管理员账号配置
+  - id: bootstrap_admin
+    type: bool
+    name: "Bootstrap Admin"
+    description: "Create default admin account on first startup"
+    default_value: true
+
+  - id: admin_username
+    type: string
+    name: "Admin Username"
+    description: "Default administrator username"
+    default_value: "admin"
+    optional: true
+
+  - id: admin_password
+    type: secret
+    name: "Admin Password"
+    description: "Default administrator password"
+    default_value: "$random(len=20)"
+    optional: true
+
+  # 数据目录配置
+  - id: library_dir
+    type: string
+    name: "Library Directory"
+    description: "if you already have previously downloaded dictionary files, please modify this path. Default is the same directory as the uploaded dictionary files through Web.you can download dictionary files from https://mdict.org"
+    default_value: "/app/data/uploads"
+    optional: true
+
+  # Redis 配置
+  - id: redis_db
+    type: string
+    name: "Redis Database"
+    description: "Redis database number (0-15)"
+    default_value: "0"
+    optional: true
+
+  - id: redis_key_prefix
+    type: string
+    name: "Redis Key Prefix"
+    description: "Prefix for Redis keys"
+    default_value: "owl:mdx:index"
+    optional: true
+
+  - id: redis_prefix_max_len
+    type: string
+    name: "Redis Prefix Max Length"
+    description: "Maximum length for Redis prefix"
+    default_value: "8"
+    optional: true
+
+  - id: redis_search_key_prefix
+    type: string
+    name: "Redis Search Key Prefix"
+    description: "Prefix for Redis search keys"
+    default_value: "owl:mdx:search"
+    optional: true
+
+locales:
+  zh:
+    bootstrap_admin:
+      name: "创建管理员"
+      description: "首次启动时创建默认管理员账号"
+    admin_username:
+      name: "管理员用户名"
+      description: "默认管理员用户名"
+    admin_password:
+      name: "管理员密码"
+      description: "默认管理员密码"
+    library_dir:
+      name: "扫描的字典目录"
+      description: "如果你已经有之前下载的字典文件，请修改该路径. 默认设置跟通过 Web 上传的字典文件一样的目录。你可以从https://mdict.org下载词典文件"
+    redis_db:
+      name: "Redis 数据库"
+      description: "Redis 数据库编号 (0-15)"
+    redis_key_prefix:
+      name: "Redis 键前缀"
+      description: "Redis 键名前缀"
+    redis_prefix_max_len:
+      name: "前缀最大长度"
+      description: "Redis 前缀最大长度"
+    redis_search_key_prefix:
+      name: "搜索键前缀"
+      description: "Redis 搜索键前缀"

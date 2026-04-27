@@ -11,7 +11,10 @@ export function sendJson(response: import('node:http').ServerResponse, status: n
 
 export function sendError(response: import('node:http').ServerResponse, error: unknown): void {
   if (isHttpError(error)) {
-    sendJson(response, error.status, { error: { code: error.code, message: error.message } });
+    sendJson(response, error.status, {
+      error: { code: error.code, message: error.message },
+      ...(error.details || {})
+    });
     return;
   }
 

@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import type { EditorSessionRecord } from '../../shared/editor';
 import type { RecentFileRecord } from '../../shared/recent';
 import { canUseLocalMiniDBFallback, getCollection } from './minidb';
@@ -11,30 +12,28 @@ function collection() {
 
 export async function touchRecentFile(session: EditorSessionRecord): Promise<void> {
   try {
-    const existing = await collection().findOne({ id: session.id });
+    const existing = await findExistingRecentFile(session.ownerUid, session.originalUrl);
     await collection().upsert(buildRecentFile(session, existing));
+    if (existing && existing.id !== buildRecentFileId(session.ownerUid, session.originalUrl)) {
+      await collection().remove(existing.id);
+    }
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
 
     const items = await readJsonArray<RecentFileRecord>(RECENT_STORE);
-    const index = items.findIndex((item) => item.id === session.id);
-    const next = buildRecentFile(session, index >= 0 ? items[index] : undefined);
+    const existing = items.find((item) => item.ownerUid === session.ownerUid && item.fileUrl === session.originalUrl);
+    const next = buildRecentFile(session, existing);
+    const nextItems = [next, ...items.filter((item) => item.id !== next.id && !(item.ownerUid === session.ownerUid && item.fileUrl === session.originalUrl))];
 
-    if (index >= 0) {
-      items[index] = next;
-    } else {
-      items.push(next);
-    }
-
-    await writeJsonArray(RECENT_STORE, items);
+    await writeJsonArray(RECENT_STORE, nextItems);
   }
 }
 
-export async function listRecentFiles(limit = 20): Promise<RecentFileRecord[]> {
+export async function listRecentFiles(ownerUid: string, limit = 20): Promise<RecentFileRecord[]> {
   try {
-    const items = await collection().find({}, { sort: ['-lastOpenedAt'] }).fetch();
+    const items = await collection().find({ ownerUid }, { sort: ['-lastOpenedAt'] }).fetch();
     return items.slice(0, limit);
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
@@ -43,40 +42,46 @@ export async function listRecentFiles(limit = 20): Promise<RecentFileRecord[]> {
 
     const items = await readJsonArray<RecentFileRecord>(RECENT_STORE);
     return items
+      .filter((item) => item.ownerUid === ownerUid)
       .sort((left, right) => right.lastOpenedAt.localeCompare(left.lastOpenedAt))
       .slice(0, limit);
   }
 }
 
-export async function deleteRecentFile(id: string): Promise<void> {
+export async function deleteRecentFile(id: string, ownerUid: string): Promise<void> {
   try {
-    await collection().remove(id);
+    const existing = await collection().findOne({ id });
+    if (existing?.ownerUid === ownerUid) {
+      await collection().remove(id);
+    }
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
 
     const items = await readJsonArray<RecentFileRecord>(RECENT_STORE);
-    await writeJsonArray(RECENT_STORE, items.filter((item) => item.id !== id));
+    await writeJsonArray(RECENT_STORE, items.filter((item) => item.id !== id || item.ownerUid !== ownerUid));
   }
 }
 
-export async function clearRecentFiles(): Promise<void> {
+export async function clearRecentFiles(ownerUid: string): Promise<void> {
   try {
-    const items = await collection().find({}).fetch();
+    const items = await collection().find({ ownerUid }).fetch();
     await collection().remove(items.map((item) => item.id));
+    return;
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
       throw error;
     }
   }
 
-  await writeJsonArray(RECENT_STORE, []);
+  const items = await readJsonArray<RecentFileRecord>(RECENT_STORE);
+  await writeJsonArray(RECENT_STORE, items.filter((item) => item.ownerUid !== ownerUid));
 }
 
 function buildRecentFile(session: EditorSessionRecord, existing?: RecentFileRecord): RecentFileRecord {
   return {
-    id: session.id,
+    id: buildRecentFileId(session.ownerUid, session.originalUrl),
     fileUrl: session.originalUrl,
     relativePath: session.relativePath,
     ownerUid: session.ownerUid,
@@ -86,4 +91,18 @@ function buildRecentFile(session: EditorSessionRecord, existing?: RecentFileReco
     lastOpenedAt: new Date().toISOString(),
     openCount: (existing?.openCount || 0) + 1
   };
+}
+
+async function findExistingRecentFile(ownerUid: string, fileUrl: string): Promise<RecentFileRecord | undefined> {
+  const id = buildRecentFileId(ownerUid, fileUrl);
+  const byId = await collection().findOne({ id });
+  if (byId) {
+    return byId;
+  }
+
+  return collection().findOne({ ownerUid, fileUrl });
+}
+
+function buildRecentFileId(ownerUid: string, fileUrl: string): string {
+  return crypto.createHash('sha256').update(`${ownerUid}\n${fileUrl}`).digest('hex').slice(0, 32);
 }

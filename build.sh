@@ -9,6 +9,7 @@ cd "$APP_DIR"
 npm run build
 
 rm -rf "$CONTENT_DIR"
-mkdir -p "$CONTENT_DIR/dist"
+mkdir -p "$CONTENT_DIR/dist" "$CONTENT_DIR/scripts"
 cp -R "$APP_DIR/dist/frontend" "$CONTENT_DIR/dist/frontend"
 cp -R "$APP_DIR/dist/server" "$CONTENT_DIR/dist/server"
+cp "$ROOT_DIR/scripts/watch-fonts.sh" "$CONTENT_DIR/scripts/watch-fonts.sh"

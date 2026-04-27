@@ -5,6 +5,10 @@ import { HttpError } from '../errors';
 const FILE_PREFIX = '/_lzc/files/home/';
 
 export function normalizeLazycatFileUrl(fileUrl: string): NormalizedLazycatFile {
+  if (fileUrl.startsWith('clientfs:')) {
+    return normalizeClientfsRelativePath(fileUrl.slice('clientfs:'.length));
+  }
+
   if (!fileUrl || typeof fileUrl !== 'string') {
     throw new HttpError(400, 'missing_file_url', 'Missing Lazycat file URL.');
   }
@@ -14,6 +18,10 @@ export function normalizeLazycatFileUrl(fileUrl: string): NormalizedLazycatFile 
     parsed = new URL(fileUrl);
   } catch {
     return normalizeLazycatRelativePath(fileUrl);
+  }
+
+  if (isRemoteDocumentUrl(parsed)) {
+    return normalizeRemoteDocumentUrl(parsed, fileUrl);
   }
 
   if (parsed.protocol !== 'https:') {
@@ -43,7 +51,47 @@ export function normalizeLazycatFileUrl(fileUrl: string): NormalizedLazycatFile 
     relativePath,
     ownerUid: '',
     title,
-    fileType
+    fileType,
+    storageType: 'lazycat-file'
+  };
+}
+
+function normalizeRemoteDocumentUrl(parsed: URL, originalUrl: string): NormalizedLazycatFile {
+  const title = resolveRemoteDocumentTitle(parsed);
+  const fileType = path.posix.extname(title).replace(/^\./, '').toLowerCase();
+
+  if (!fileType) {
+    throw new HttpError(415, 'unsupported_file_type', 'Remote URL does not contain a file extension.');
+  }
+
+  return {
+    originalUrl,
+    fileOrigin: parsed.origin,
+    relativePath: title,
+    ownerUid: '',
+    title,
+    fileType,
+    storageType: 'remote-url'
+  };
+}
+
+function normalizeClientfsRelativePath(filePath: string): NormalizedLazycatFile {
+  const relativePath = normalizeRelativePath(filePath.replace(/\\/g, '/').replace(/^\/+/, ''));
+  const title = path.posix.basename(relativePath) || 'document';
+  const fileType = path.posix.extname(title).replace(/^\./, '').toLowerCase();
+
+  if (!fileType) {
+    throw new HttpError(415, 'unsupported_file_type', 'Client file path does not contain a file extension.');
+  }
+
+  return {
+    originalUrl: `clientfs:${relativePath}`,
+    fileOrigin: '',
+    relativePath,
+    ownerUid: '',
+    title,
+    fileType,
+    storageType: 'clientfs'
   };
 }
 
@@ -62,8 +110,33 @@ function normalizeLazycatRelativePath(filePath: string): NormalizedLazycatFile {
     relativePath,
     ownerUid: '',
     title,
-    fileType
+    fileType,
+    storageType: 'local-path'
   };
+}
+
+function isRemoteDocumentUrl(parsed: URL): boolean {
+  return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && !parsed.hostname.startsWith('file.');
+}
+
+function resolveRemoteDocumentTitle(parsed: URL): string {
+  const rawName = decodeURIComponent(path.posix.basename(parsed.pathname));
+  const nameFromPath = sanitizeTitle(rawName);
+  if (path.posix.extname(nameFromPath)) {
+    return nameFromPath;
+  }
+
+  const nameFromQuery = sanitizeTitle(parsed.searchParams.get('filename') || parsed.searchParams.get('name') || '');
+  if (path.posix.extname(nameFromQuery)) {
+    return nameFromQuery;
+  }
+
+  return nameFromPath || nameFromQuery || 'document';
+}
+
+function sanitizeTitle(input: string): string {
+  const sanitized = input.replace(/[\\/:*?"<>|\0]/g, '_').trim();
+  return sanitized || 'document';
 }
 
 function normalizeRelativePath(input: string): string {

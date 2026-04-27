@@ -1,15 +1,33 @@
 import { useEffect, useRef, useState } from 'react';
-import { createEditorSession } from '../../lib/api/client';
-import type { EditorSessionResponse } from '../../../../shared/editor';
+import { createEditorSession, EditorSessionConflictError, releaseEditorSession } from '../../lib/api/client';
+import type { EditorSessionConflictResponse, EditorSessionMode, EditorSessionResponse } from '../../../../shared/editor';
 
 const DOCS_API_SRC = '/web-apps/apps/api/documents/api.js';
+
+interface OpenAttempt {
+  mode: EditorSessionMode;
+  takeover: boolean;
+  nonce: number;
+}
+
+type ConflictState = EditorSessionConflictResponse['conflict'];
 
 export function OpenPage() {
   const [status, setStatus] = useState('正在创建编辑会话');
   const [error, setError] = useState('');
+  const [conflict, setConflict] = useState<ConflictState | null>(null);
   const [debugLines, setDebugLines] = useState<string[]>([]);
   const [scriptState, setScriptState] = useState('pending');
+  const [openAttempt, setOpenAttempt] = useState<OpenAttempt>({ mode: 'edit', takeover: false, nonce: 0 });
   const editorRef = useRef<{ destroyEditor?: () => void } | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+
+  const retryOpen = (mode: EditorSessionMode, takeover = false) => {
+    setConflict(null);
+    setError('');
+    setStatus(mode === 'view' ? '正在以只读方式打开' : '正在接管编辑会话');
+    setOpenAttempt({ mode, takeover, nonce: Date.now() });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -56,9 +74,12 @@ export function OpenPage() {
         const normalizedFileUrl = normalizeOpenFileUrl(fileUrl);
         pushDebug('Normalized file url', { normalizedFileUrl });
 
+        const isClientfsFile = fileUrl.startsWith('clientfs:');
         const session = await createEditorSession({
           fileUrl: normalizedFileUrl,
-          source: 'file-handler'
+          source: isClientfsFile ? 'clientfs' : isOnlineDocumentUrl(fileUrl) ? 'url' : 'file-handler',
+          mode: openAttempt.mode,
+          takeover: openAttempt.takeover
         });
         pushDebug('Editor session created', {
           sessionId: session.session.id,
@@ -71,6 +92,7 @@ export function OpenPage() {
         });
 
         if (cancelled) return;
+        sessionIdRef.current = session.session.id;
         setStatus('正在加载 ONLYOFFICE 编辑器');
         pushDebug('Loading DocsAPI script', { src: DOCS_API_SRC });
 
@@ -105,6 +127,13 @@ export function OpenPage() {
       } catch (caught) {
         if (cancelled) return;
         pushDebug('OpenPage error', caught instanceof Error ? { message: caught.message, stack: caught.stack } : caught);
+        if (caught instanceof EditorSessionConflictError) {
+          setConflict(caught.payload.conflict);
+          setError(caught.message);
+          setStatus('');
+          return;
+        }
+
         setError(caught instanceof Error ? caught.message : '打开文件失败');
         setStatus('');
       }
@@ -115,12 +144,16 @@ export function OpenPage() {
     return () => {
       cancelled = true;
       pushDebug('OpenPage cleanup');
+      if (sessionIdRef.current) {
+        releaseEditorSession(sessionIdRef.current);
+        sessionIdRef.current = null;
+      }
       window.removeEventListener('error', handleWindowError);
       window.removeEventListener('unhandledrejection', handleUnhandledRejection);
       editorRef.current?.destroyEditor?.();
       editorRef.current = null;
     };
-  }, []);
+  }, [openAttempt]);
 
   return (
     <main className="editor-page">
@@ -130,6 +163,19 @@ export function OpenPage() {
           <h2>打开文件</h2>
           {status ? <div className="empty">{status}</div> : null}
           {error ? <div className="error-text">{error}</div> : null}
+          {conflict ? (
+            <div className="editor-conflict">
+              <div className="empty">文件：{conflict.title}</div>
+              <div className="editor-conflict-actions">
+                <button type="button" className="settings-secondary-button" onClick={() => retryOpen('view')}>
+                  继续只读查看
+                </button>
+                <button type="button" className="settings-primary-button" onClick={() => retryOpen('edit', true)}>
+                  接管编辑
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="empty">DocsAPI 脚本状态: {scriptState}</div>
         </section>
       ) : null}
@@ -190,7 +236,12 @@ function safeStringify(value: unknown): string {
   }
 }
 
+
 function normalizeOpenFileUrl(input: string): string {
+  if (input.startsWith('clientfs:')) {
+    return input;
+  }
+
   if (/^https?:\/\//i.test(input)) {
     return input;
   }
@@ -200,6 +251,15 @@ function normalizeOpenFileUrl(input: string): string {
   const encodedPath = relativePath.split('/').map(encodeURIComponent).join('/');
 
   return `${window.location.protocol}//file.${boxDomain}/_lzc/files/home/${encodedPath}`;
+}
+
+function isOnlineDocumentUrl(input: string): boolean {
+  try {
+    const url = new URL(input);
+    return (url.protocol === 'http:' || url.protocol === 'https:') && !url.hostname.startsWith('file.');
+  } catch {
+    return false;
+  }
 }
 
 function normalizeRelativePath(input: string): string {

@@ -1,0 +1,73 @@
+# Owl 应用运行配置
+application:
+  subdomain: owl
+  public_path:
+    - /
+  # HTTP 服务路由
+  upstreams:
+    - location: /
+      backend: http://owl:8080/
+
+  # 免密登录配置 - 自动填充管理员密码
+  injects:
+    - id: login-autofill
+      when:
+        - / # 用户指定的登录页路径
+      do:
+        - src: builtin://simple-inject-password
+          params:
+            user: "{{ .U.admin_username }}"
+            password: "{{ .U.admin_password }}"
+
+services:
+  # Redis 搜索索引服务（Internal）
+  redis:
+    image: registry.lazycat.cloud/czyt/redis/redis-stack-server:faf36c1cd3057b5d
+    environment:
+      # Redis 密码自动生成
+      - REDIS_PASSWORD=owl_redis_password
+    command: redis-server --requirepass owl_redis_password
+    # 健康检查（用户选择添加）
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - redis-cli -a owl_redis_password ping | grep PONG
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    binds:
+      - /lzcapp/var/redis:/data
+
+  # Owl 主应用（External）
+  owl:
+    # czyt/owl:v0.1.9
+    image: registry.lazycat.cloud/czyt/czyt/owl:f994cc64360207b8
+    depends_on:
+      - redis
+    environment:
+      # 应用端口
+      - OWL_PORT=8080
+      # JWT 密钥 - 使用稳定密钥生成
+      - OWL_JWT_SECRET={{ stable_secret "owl$jwT" }}
+      # 管理员配置 - 用户配置
+      - OWL_BOOTSTRAP_ADMIN={{.U.bootstrap_admin}}
+      - OWL_ADMIN_USERNAME={{.U.admin_username}}
+      - OWL_ADMIN_PASSWORD={{.U.admin_password}}
+      # 数据目录
+      - OWL_DATA_DIR=/app/data
+      - OWL_UPLOADS_DIR=/app/data/uploads
+      - OWL_LIBRARY_DIR={{.U.library_dir}}
+      - OWL_DB_PATH=/app/data/data.db
+      # 前端跨域
+      - OWL_FRONTEND_ORIGIN=*
+      # Redis 配置 - Internal 服务自动连接
+      - OWL_REDIS_ADDR=redis:6379
+      - OWL_REDIS_PASSWORD=owl_redis_password
+      - OWL_REDIS_DB={{.U.redis_db}}
+      - OWL_REDIS_KEY_PREFIX={{.U.redis_key_prefix}}
+      - OWL_REDIS_PREFIX_MAX_LEN={{.U.redis_prefix_max_len}}
+      - OWL_REDIS_SEARCH_ENABLED=true
+      - OWL_REDIS_SEARCH_KEY_PREFIX={{.U.redis_search_key_prefix}}
+    binds:
+      - /lzcapp/var/owl:/app/data
