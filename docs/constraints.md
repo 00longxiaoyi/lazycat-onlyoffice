@@ -56,6 +56,18 @@ This includes, but is not limited to:
 
 Frontend layout must support desktop, mobile, and narrow client window scenarios.
 
+### Rule 3.6
+
+Frontend CSS must be split by responsibility and page/component domain.
+
+Do not accumulate all frontend styles in a single large CSS file. Keep only a small CSS entry file for import ordering if needed.
+
+### Rule 3.7
+
+Frontend main pages must fill the available application workspace.
+
+Do not design small standalone page blocks inside large empty areas unless the UI is explicitly a modal, dialog, or confirmation overlay.
+
 ## 2. File-Orchestration Rules
 
 ### Rule 4

@@ -1,0 +1,67 @@
+@media (max-width: 760px) {
+  .home-layout {
+    grid-template-columns: 1fr;
+    gap: 12px;
+    height: auto;
+    min-height: 100vh;
+    padding: 12px;
+    overflow: auto;
+  }
+
+
+  .home-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    flex-direction: row;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid #e5e6eb;
+    border-radius: 8px;
+  }
+
+
+  .home-layout > .home-content > .panel,
+  .home-layout > .home-content > .home-main-panel > .panel {
+    border-left: 1px solid #e5e6eb;
+    border-radius: 8px;
+  }
+
+
+  .home-nav {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+  }
+
+  .page-shell {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .home-shell,
+  .home-shell.recent-pinned {
+    grid-template-columns: 1fr;
+  }
+
+  .recent-panel.is-pinned {
+    min-height: 0;
+    max-height: none;
+  }
+
+
+  .drive-title-actions {
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .drive-list {
+    height: auto;
+    min-height: 0;
+  }
+
+  .drive-list-head,
+  .drive-row {
+    grid-template-columns: minmax(160px, 1fr) 120px 72px 62px;
+    min-width: 480px;
+  }
+}

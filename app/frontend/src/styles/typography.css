@@ -1,0 +1,96 @@
+:root {
+  --font-size-micro: 10px;
+  --font-size-meta: 14px;
+  --font-size-base: 16px;
+  --font-size-title: 18px;
+  --font-size-display: 28px;
+}
+
+body {
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+:is(
+  .home-nav-item,
+  .panel,
+  .panel-title-row,
+  .home-title-tab,
+  .drive-row,
+  .drive-list-head,
+  .drive-path,
+  .drive-nav-button,
+  .drive-scope-tab,
+  .drive-filter-tab,
+  .drive-empty,
+  .favorite-row,
+  .favorite-list-head,
+  .recent-item,
+  .recent-file-title,
+  .recent-clear-button,
+  .online-url-subtitle,
+  .online-url-input,
+  .online-url-button,
+  .online-url-history-item,
+  .online-url-history-empty,
+  .settings-primary-button,
+  .settings-secondary-button,
+  .settings-danger-button,
+  .settings-module-item,
+  .settings-module-item strong,
+  .fonts-status,
+  .font-item,
+  .font-item strong,
+  .confirm-dialog,
+  .confirm-dialog p,
+  .confirm-dialog-target,
+  .empty,
+  .error-text
+) {
+  font-size: var(--font-size-base);
+}
+
+:is(
+  .panel h2,
+  .online-url-history-title,
+  .confirm-dialog h3
+) {
+  font-size: var(--font-size-title);
+}
+
+.online-url-title {
+  font-size: var(--font-size-display);
+}
+
+:is(
+  .recent-subtitle,
+  .favorite-path,
+  .online-url-hint,
+  .settings-module-item small,
+  .font-item small,
+  .font-log-panel,
+  .font-upload-progress,
+  .font-log-panel pre
+) {
+  font-size: var(--font-size-meta);
+}
+
+.recent-file-main small {
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+:is(
+  .drive-filter-tab,
+  .drive-scope-tab,
+  .drive-list-head,
+  .drive-row,
+  .drive-nav-button,
+  .drive-path
+) {
+  font-size: var(--font-size-meta);
+}
+
+:is(.drive-filter-tab, .drive-scope-tab) {
+  font-size: 12px;
+}

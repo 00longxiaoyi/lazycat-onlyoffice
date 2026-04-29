@@ -1,8 +1,9 @@
 import type { EditorSessionConflictResponse, EditorSessionRequest, EditorSessionResponse } from '../../../../shared/editor';
-import type { LazycatDriveListResponse, LazycatDriveScope } from '../../../../shared/drive';
+import type { LazycatDriveEntry, LazycatDriveListResponse, LazycatDriveScope } from '../../../../shared/drive';
 import type { FontListResponse, FontRefreshResponse, FontUploadResponse } from '../../../../shared/fonts';
 import type { OnlineUrlHistoryResponse, TouchOnlineUrlHistoryRequest } from '../../../../shared/online-url';
 import type { RecentFilesResponse } from '../../../../shared/recent';
+import type { FavoriteItemsResponse, UpsertFavoriteRequest } from '../../../../shared/favorite';
 
 export async function createEditorSession(request: EditorSessionRequest): Promise<EditorSessionResponse> {
   const response = await fetch('/api/editor/session', {
@@ -69,6 +70,37 @@ export async function deleteRecentFile(id: string): Promise<void> {
 
 export async function clearRecentFiles(): Promise<void> {
   const response = await fetch('/api/recent', { method: 'DELETE' });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
+export async function getFavoriteItems(): Promise<FavoriteItemsResponse> {
+  const response = await fetch('/api/favorites');
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+
+  return response.json() as Promise<FavoriteItemsResponse>;
+}
+
+export async function addFavoriteItem(item: LazycatDriveEntry, fileUrl: string): Promise<void> {
+  const request: UpsertFavoriteRequest = { item, fileUrl };
+  const response = await fetch('/api/favorites', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(request)
+  });
+
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+}
+
+export async function deleteFavoriteItem(id: string): Promise<void> {
+  const response = await fetch(`/api/favorites/${encodeURIComponent(id)}`, { method: 'DELETE' });
 
   if (!response.ok) {
     throw new Error(await response.text());

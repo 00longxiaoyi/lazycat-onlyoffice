@@ -696,7 +696,7 @@ async function createEditorSessionWithCookie(request, config2, options) {
   const requestedMode = request.mode === "view" ? "view" : "edit";
   const activeSession = requestedMode === "edit" ? await findActiveEditSession(documentIdentity, options.user.id) : void 0;
   if (activeSession && !request.takeover) {
-    throw new HttpError(409, "editor_session_conflict", "\u4F60\u5DF2\u5728\u5176\u4ED6\u7A97\u53E3\u6216\u8BBE\u5907\u7F16\u8F91\u6B64\u6587\u4EF6\u3002", {
+    throw new HttpError(409, "editor_session_conflict", "\u6B64\u6587\u4EF6\u5DF2\u88AB\u5360\u7528", {
       conflict: {
         sessionId: activeSession.id,
         title: activeSession.title,
@@ -946,6 +946,100 @@ async function handleDeleteRecentFile(id, request, response, config2) {
   }
   const user = resolveRequestUser(request, config2);
   await deleteRecentFile(id, user.id);
+  sendJson(response, 200, { ok: true });
+}
+
+// server/db/favorite-store.ts
+import crypto3 from "node:crypto";
+var FAVORITE_STORE = "favorite_items";
+function collection3() {
+  return getCollection(FAVORITE_STORE);
+}
+async function listFavoriteItems(ownerUid) {
+  try {
+    const items = await collection3().find({ ownerUid }, { sort: ["-createdAt"] }).fetch();
+    return items;
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+    const items = await readJsonArray(FAVORITE_STORE);
+    return items.filter((item) => item.ownerUid === ownerUid).sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+}
+async function upsertFavoriteItem(ownerUid, entry, fileUrl) {
+  const item = buildFavoriteItem(ownerUid, entry, fileUrl);
+  try {
+    await collection3().upsert(item);
+    return item;
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+    const items = await readJsonArray(FAVORITE_STORE);
+    await writeJsonArray(FAVORITE_STORE, [item, ...items.filter((current) => current.id !== item.id)]);
+    return item;
+  }
+}
+async function deleteFavoriteItem(id, ownerUid) {
+  try {
+    const existing = await collection3().findOne({ id });
+    if (existing?.ownerUid === ownerUid) {
+      await collection3().remove(id);
+    }
+  } catch (error) {
+    if (!canUseLocalMiniDBFallback(error)) {
+      throw error;
+    }
+    const items = await readJsonArray(FAVORITE_STORE);
+    await writeJsonArray(FAVORITE_STORE, items.filter((item) => item.id !== id || item.ownerUid !== ownerUid));
+  }
+}
+function buildFavoriteItem(ownerUid, entry, fileUrl) {
+  const source = entry.source || "all";
+  return {
+    id: buildFavoriteItemId(ownerUid, source, entry.path, entry.type),
+    ownerUid,
+    name: entry.name,
+    path: entry.path,
+    type: entry.type,
+    size: entry.size,
+    modifiedAt: entry.modifiedAt,
+    fileType: entry.fileType,
+    supported: entry.supported,
+    source,
+    fileUrl,
+    createdAt: (/* @__PURE__ */ new Date()).toISOString()
+  };
+}
+function buildFavoriteItemId(ownerUid, source, itemPath, type) {
+  return crypto3.createHash("sha256").update(`${ownerUid}
+${source}
+${type}
+${itemPath}`).digest("hex").slice(0, 32);
+}
+
+// server/routes/favorites.ts
+async function handleFavoriteItems(request, response, config2) {
+  const user = resolveRequestUser(request, config2);
+  const items = await listFavoriteItems(user.id);
+  sendJson(response, 200, { items });
+}
+async function handleUpsertFavoriteItem(request, response, config2) {
+  const user = resolveRequestUser(request, config2);
+  const body = await readJsonBody(request);
+  if (!body.item?.path || !body.item?.name || !body.item?.type) {
+    throw new HttpError(400, "missing_favorite_item", "Missing favorite item.");
+  }
+  const item = await upsertFavoriteItem(user.id, body.item, body.fileUrl || body.item.path);
+  sendJson(response, 200, { item });
+}
+async function handleDeleteFavoriteItem(id, request, response, config2) {
+  if (!id) {
+    throw new HttpError(400, "missing_favorite_id", "Missing favorite id.");
+  }
+  const user = resolveRequestUser(request, config2);
+  await deleteFavoriteItem(id, user.id);
   sendJson(response, 200, { ok: true });
 }
 
@@ -1559,15 +1653,15 @@ function compareEntries(a, b) {
 }
 
 // server/db/online-url-store.ts
-import crypto3 from "node:crypto";
+import crypto4 from "node:crypto";
 var ONLINE_URL_STORE = "online_url_history";
-function collection3() {
+function collection4() {
   return getCollection(ONLINE_URL_STORE);
 }
 async function touchOnlineUrlHistory(ownerUid, url, title) {
   const record = buildOnlineUrlRecord(ownerUid, url, title);
   try {
-    await collection3().upsert(record);
+    await collection4().upsert(record);
     return record;
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
@@ -1581,7 +1675,7 @@ async function touchOnlineUrlHistory(ownerUid, url, title) {
 }
 async function listOnlineUrlHistory(ownerUid, limit = 20) {
   try {
-    const items = await collection3().find({ ownerUid }, { sort: ["-openedAt"] }).fetch();
+    const items = await collection4().find({ ownerUid }, { sort: ["-openedAt"] }).fetch();
     return items.slice(0, limit);
   } catch (error) {
     if (!canUseLocalMiniDBFallback(error)) {
@@ -1601,7 +1695,7 @@ function buildOnlineUrlRecord(ownerUid, url, title) {
   };
 }
 function createOnlineUrlHistoryId(ownerUid, url) {
-  return crypto3.createHash("sha256").update(`${ownerUid}
+  return crypto4.createHash("sha256").update(`${ownerUid}
 ${url}`).digest("hex").slice(0, 32);
 }
 
@@ -1687,6 +1781,15 @@ function createServer(config2) {
       }
       if (request.method === "DELETE" && url.pathname.startsWith("/api/recent/")) {
         return await handleDeleteRecentFile(decodeURIComponent(url.pathname.slice("/api/recent/".length)), request, response, config2);
+      }
+      if (request.method === "GET" && url.pathname === "/api/favorites") {
+        return await handleFavoriteItems(request, response, config2);
+      }
+      if (request.method === "POST" && url.pathname === "/api/favorites") {
+        return await handleUpsertFavoriteItem(request, response, config2);
+      }
+      if (request.method === "DELETE" && url.pathname.startsWith("/api/favorites/")) {
+        return await handleDeleteFavoriteItem(decodeURIComponent(url.pathname.slice("/api/favorites/".length)), request, response, config2);
       }
       if (request.method === "GET" && url.pathname === "/api/online-url/history") {
         return await handleOnlineUrlHistory(request, response, config2);

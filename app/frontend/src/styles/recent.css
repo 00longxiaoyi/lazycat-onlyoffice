@@ -1,0 +1,199 @@
+.recent-list {
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.recent-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 6px 7px 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+
+.recent-item:hover {
+  background: #f7f8fa;
+  border-color: #eef0f3;
+}
+
+.recent-item small,
+.empty {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.recent-clear-button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: #4b5563;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #d8dee8;
+  border-radius: 8px;
+  font-size: 18px;
+}
+
+.recent-clear-button:disabled {
+  color: #b6beca;
+  cursor: not-allowed;
+  background: #f5f6f8;
+}
+
+.recent-clear-button:not(:disabled):hover {
+  color: #dc2626;
+  border-color: #fecaca;
+  background: #fff7f7;
+}
+
+.recent-clear-button .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.recent-subtitle {
+  margin-top: 0;
+  color: #86909c;
+  font-size: 12px;
+}
+
+.recent-file-icon {
+  width: 30px;
+  height: 30px;
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 30px;
+  text-align: center;
+  background: #eff6ff;
+  border: 1px solid #dbeafe;
+  border-radius: 6px;
+}
+
+.recent-file-link {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.recent-file-main {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.recent-file-title,
+.recent-file-main small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-file-main small {
+  color: #8b95a5;
+  font-size: 12px;
+  line-height: 1.25;
+}
+
+.recent-file-title {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.recent-delete-button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #a3acba;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.recent-delete-button .svg-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.recent-delete-button:hover {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.recent-empty {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  min-height: 0;
+  padding: 18px 4px;
+}
+
+.recent-file-icon {
+  width: 34px;
+  height: 34px;
+  font-size: 13px;
+  line-height: 34px;
+}
+
+.recent-file-link {
+  grid-template-columns: 34px minmax(0, 1fr);
+}
+
+.recent-file-icon {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+
+.recent-title-row {
+  min-height: 40px;
+  margin-bottom: 10px;
+}
+
+.recent-clear-button {
+  background: transparent;
+  border: 0;
+}
+
+.recent-clear-button:disabled {
+  background: transparent;
+}
+
+.recent-clear-button:not(:disabled):hover {
+  background: #f7f8fa;
+  border: 0;
+}
+
+.recent-clear-button .svg-icon,
+.recent-delete-button .svg-icon {
+  width: 30px;
+  height: 30px;
+}
+
+.recent-delete-button span {
+  font-size: 22px;
+  line-height: 1;
+}

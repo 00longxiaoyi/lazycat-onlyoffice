@@ -3,6 +3,7 @@ import type { AppConfig } from './config';
 import { sendError, sendJson } from './utils/http';
 import { handleEditorSession, handleReleaseEditorSession } from './routes/editor';
 import { handleClearRecentFiles, handleDeleteRecentFile, handleRecentFiles } from './routes/recent';
+import { handleDeleteFavoriteItem, handleFavoriteItems, handleUpsertFavoriteItem } from './routes/favorites';
 import { handleCallback, handleDownload } from './routes/files';
 import { handleFontDelete, handleFontList, handleFontRefresh, handleFontUpload } from './routes/fonts';
 import { handleDriveList } from './routes/drive';
@@ -38,6 +39,18 @@ export function createServer(config: AppConfig): http.Server {
 
       if (request.method === 'DELETE' && url.pathname.startsWith('/api/recent/')) {
         return await handleDeleteRecentFile(decodeURIComponent(url.pathname.slice('/api/recent/'.length)), request, response, config);
+      }
+
+      if (request.method === 'GET' && url.pathname === '/api/favorites') {
+        return await handleFavoriteItems(request, response, config);
+      }
+
+      if (request.method === 'POST' && url.pathname === '/api/favorites') {
+        return await handleUpsertFavoriteItem(request, response, config);
+      }
+
+      if (request.method === 'DELETE' && url.pathname.startsWith('/api/favorites/')) {
+        return await handleDeleteFavoriteItem(decodeURIComponent(url.pathname.slice('/api/favorites/'.length)), request, response, config);
       }
 
       if (request.method === 'GET' && url.pathname === '/api/online-url/history') {

@@ -1,0 +1,512 @@
+.drive-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.drive-nav-button {
+  height: 30px;
+  padding: 0 12px;
+  color: #1f2329;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #dcdfe6;
+  border-radius: 4px;
+}
+
+.drive-nav-button:disabled {
+  color: #a8abb2;
+  cursor: not-allowed;
+  background: #f5f6f8;
+}
+
+.drive-path {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  max-width: min(860px, 62vw);
+  color: #6b7280;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-path-scope,
+.drive-path-parent,
+.drive-path-current,
+.drive-path-part {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.drive-path-scope {
+  flex: 0 0 auto;
+  color: #6b7280;
+}
+
+.drive-path-separator {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  color: #b0b8c4;
+}
+
+.drive-path-part {
+  display: inline-flex;
+  flex: 0 1 auto;
+}
+
+.drive-path-parent {
+  flex: 0 1 auto;
+  color: #9ca3af;
+}
+
+.drive-path-current {
+  flex: 0 1 auto;
+  color: #6b7280;
+}
+
+.drive-title-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drive-scope-tabs,
+.drive-filter-tabs {
+  display: inline-flex;
+  padding: 2px;
+  background: #f5f7fb;
+  border: 1px solid #dfe3ea;
+  border-radius: 6px;
+}
+
+.drive-scope-tab,
+.drive-filter-tab {
+  height: 26px;
+  padding: 0 10px;
+  color: #4e5969;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.drive-scope-tab:hover,
+.drive-filter-tab:hover {
+  color: #1f2329;
+}
+
+.drive-scope-tab.is-active,
+.drive-filter-tab.is-active {
+  color: #165dff;
+  font-weight: 600;
+  background: #eaf2ff;
+  border-color: #7aa7ff;
+  box-shadow: 0 1px 3px rgb(22 93 255 / 14%);
+}
+
+
+.drive-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  background: #fff;
+}
+
+.drive-list-head,
+.drive-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 160px 90px 80px;
+  align-items: center;
+  gap: 12px;
+  min-width: 620px;
+  padding: 0 14px;
+}
+
+.drive-list-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 38px;
+  color: #6b7280;
+  font-size: 13px;
+  background: #fff;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.drive-row {
+  width: 100%;
+  height: 36px;
+  color: #1f2329;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.drive-row:hover {
+  background: #f7f8fa;
+}
+
+.drive-row.is-selected {
+  background: #f7fbff;
+  box-shadow: inset 3px 0 0 #165dff;
+}
+
+.drive-row.is-disabled {
+  color: #9ca3af;
+}
+
+.drive-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drive-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+}
+
+.drive-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.drive-empty {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 24px;
+  color: #6b7280;
+  font-size: 13px;
+  text-align: center;
+}
+
+.error-text {
+  margin-top: 10px;
+  color: #c2410c;
+  font-size: 13px;
+}
+
+
+.drive-icon {
+  width: 15px;
+  height: 15px;
+  min-width: 15px;
+  min-height: 15px;
+}
+
+.drive-icon-folder {
+  width: 15px;
+  height: 15px;
+  margin-top: 0;
+  border-radius: 3px;
+}
+
+.drive-icon-folder::before {
+  top: -3px;
+  left: 2px;
+  width: 7px;
+  height: 4px;
+}
+
+.drive-icon-file {
+  width: 15px;
+  height: 15px;
+  font-size: 8px;
+  line-height: 13px;
+}
+
+.drive-icon {
+  display: inline-block;
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.drive-icon::before {
+  content: none;
+}
+
+.drive-icon {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+}
+
+.drive-name {
+  align-items: center;
+}
+
+.drive-icon {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.drive-name {
+  height: 100%;
+  align-items: center;
+  line-height: 1;
+}
+
+.drive-icon {
+  flex: 0 0 16px;
+  display: block;
+  transform: translateY(1px);
+}
+
+.drive-name-text {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  line-height: 16px;
+}
+
+.drive-icon {
+  width: 25px;
+  height: 25px;
+  min-width: 25px;
+  min-height: 25px;
+  flex: 0 0 25px;
+  margin-top: -6px;
+  transform: none;
+}
+
+
+.drive-title-actions {
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  max-width: min(860px, 70%);
+}
+
+.drive-scope-tabs,
+.drive-filter-tabs {
+  min-height: 40px;
+  padding: 3px;
+  border-radius: 9px;
+}
+
+.drive-scope-tab,
+.drive-filter-tab {
+  height: 34px;
+  padding: 0 16px;
+  font-size: 16px;
+  border-radius: 7px;
+}
+
+.drive-toolbar {
+  min-height: 48px;
+  padding: 0 0 12px;
+  margin-bottom: 0;
+  border-bottom: 1px solid #eef0f3;
+}
+
+.drive-nav-button {
+  height: 38px;
+  padding: 0 18px;
+  font-size: 16px;
+  border-radius: 7px;
+}
+
+.drive-list-head {
+  height: 44px;
+}
+
+
+.drive-toolbar {
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 56px;
+  padding: 8px 0 12px;
+}
+
+.drive-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(1040px, 68%);
+  min-width: 0;
+}
+
+.drive-title-actions {
+  max-width: 48%;
+}
+
+.drive-scope-tabs {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
+.drive-filter-tab,
+.drive-scope-tab,
+.drive-list-head,
+.drive-row {
+  font-size: 14px;
+}
+
+.drive-filter-tab,
+.drive-scope-tab {
+  height: 30px;
+  padding: 0 11px;
+}
+
+.drive-nav-button,
+.drive-path {
+  font-size: 14px;
+}
+
+
+.drive-filter-tab,
+.drive-scope-tab {
+  font-size: 11px;
+}
+
+.drive-list-head {
+  background: #f7f8fa;
+}
+
+.drive-icon {
+  margin-top: -3px;
+}
+
+
+.drive-toolbar {
+  min-height: 52px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #f8fafc;
+  border: 1px solid #edf0f5;
+  border-radius: 10px;
+}
+
+.drive-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.drive-toolbar-actions .drive-filter-tabs,
+.drive-toolbar-actions .drive-scope-tabs {
+  flex-shrink: 0;
+}
+
+.drive-breadcrumb {
+  flex: 1 1 0;
+}
+
+.drive-filter-tabs,
+.drive-scope-tabs {
+  background: #fff;
+}
+
+.drive-scope-tab.is-active,
+.drive-filter-tab.is-active {
+  color: #4b5563;
+  font-weight: 400;
+  background: #eef0f3;
+  border-color: #e5e7eb;
+  box-shadow: none;
+}
+
+.drive-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+}
+
+.drive-breadcrumb {
+  max-width: none;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.drive-path {
+  flex: 1 1 auto;
+  max-width: none;
+}
+
+.drive-toolbar-actions {
+  min-width: max-content;
+  flex-wrap: nowrap;
+}
+
+.drive-toolbar {
+  min-height: 40px;
+  padding: 0 0 8px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.drive-filter-tabs,
+.drive-scope-tabs {
+  align-items: center;
+  min-height: 28px;
+  padding: 2px;
+  background: transparent;
+  border-color: #e5e7eb;
+  border-radius: 8px;
+}
+
+.drive-filter-tab,
+.drive-scope-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 6px;
+}
+
+.drive-filter-tab.is-active,
+.drive-scope-tab.is-active {
+  align-items: center;
+  justify-content: center;
+  background: #eef0f3;
+  border-color: transparent;
+}
+
+.drive-filter-tab,
+.drive-scope-tab {
+  font-size: 14px;
+}
+
+.drive-toolbar-actions,
+.drive-toolbar-actions .drive-filter-tabs,
+.drive-toolbar-actions .drive-scope-tabs,
+.drive-toolbar-actions .drive-filter-tab,
+.drive-toolbar-actions .drive-scope-tab {
+  font-size: 14px !important;
+}

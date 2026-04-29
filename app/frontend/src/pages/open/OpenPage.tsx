@@ -161,11 +161,10 @@ export function OpenPage() {
       {status || error ? (
         <section className="editor-status">
           <h2>打开文件</h2>
-          {status ? <div className="empty">{status}</div> : null}
-          {error ? <div className="error-text">{error}</div> : null}
           {conflict ? (
             <div className="editor-conflict">
-              <div className="empty">文件：{conflict.title}</div>
+              <div className="editor-conflict-alert">此文件已被占用</div>
+              <div className="editor-conflict-file" title={conflict.title}>文件：{conflict.title}</div>
               <div className="editor-conflict-actions">
                 <button type="button" className="settings-secondary-button" onClick={() => retryOpen('view')}>
                   继续只读查看
@@ -175,8 +174,13 @@ export function OpenPage() {
                 </button>
               </div>
             </div>
-          ) : null}
-          <div className="empty">DocsAPI 脚本状态: {scriptState}</div>
+          ) : (
+            <>
+              {status ? <div className="empty">{status}</div> : null}
+              {error ? <div className="error-text">{error}</div> : null}
+            </>
+          )}
+          <div className="editor-script-state">DocsAPI 脚本状态: {scriptState}</div>
         </section>
       ) : null}
       <DebugPanel debugLines={debugLines} />

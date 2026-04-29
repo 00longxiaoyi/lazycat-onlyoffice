@@ -22,6 +22,8 @@ DocumentServer handles editing engine capabilities only.
 - `architecture.md`: static structure, service boundaries, service split decision, and route ownership model.
 - `flows.md`: runtime flows for opening files, editor initialization, downloading, saving, and recent-file updates.
 - `constraints.md`: hard rules, routing boundaries, upgrade rules, and forbidden designs.
+- `frontend-agent.md`: frontend CSS organization and full-page layout design rules.
+- `backend-agent.md`: backend middle-layer boundaries, file flow, persistence, and edge-case rules.
 - `plan.md`: phased implementation sequence and acceptance targets.
 
 ## Recommended Reading Order
@@ -29,9 +31,9 @@ DocumentServer handles editing engine capabilities only.
 - To understand the whole system:
   Read `README-AI.md` + `architecture.md`
 - To implement file open/save logic:
-  Read `README-AI.md` + `flows.md` + `constraints.md`
+  Read `README-AI.md` + `flows.md` + `constraints.md` + `backend-agent.md`
 - To implement frontend pages and interactions:
-  Read `README-AI.md` + `architecture.md` + `flows.md`
+  Read `README-AI.md` + `architecture.md` + `flows.md` + `constraints.md` + `frontend-agent.md`
 - To start coding end-to-end:
   Read `README-AI.md` + `architecture.md` + `flows.md` + `constraints.md` + `plan.md`
 

@@ -34,7 +34,7 @@ export async function createEditorSessionWithCookie(
     : undefined;
 
   if (activeSession && !request.takeover) {
-    throw new HttpError(409, 'editor_session_conflict', '你已在其他窗口或设备编辑此文件。', {
+    throw new HttpError(409, 'editor_session_conflict', '此文件已被占用', {
       conflict: {
         sessionId: activeSession.id,
         title: activeSession.title,
