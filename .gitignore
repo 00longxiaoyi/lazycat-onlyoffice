@@ -3,3 +3,4 @@ aapp/node_modules/
 *.log
 .env
 lpk/
+/.lzc-cli*
