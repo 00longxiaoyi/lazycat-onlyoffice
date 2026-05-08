@@ -16,11 +16,11 @@
     "@lazycatcloud/lzc-file-pickers": "2.0.15",
     "@lazycatcloud/minidb": "0.0.13",
     "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "typescript": "latest",
-    "tsx": "latest",
     "react": "latest",
-    "react-dom": "latest"
+    "react-dom": "latest",
+    "tsx": "latest",
+    "typescript": "latest",
+    "vite": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",

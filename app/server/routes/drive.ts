@@ -4,15 +4,12 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { LazycatDriveEntry, LazycatDriveListResponse, LazycatDriveScope } from '../../shared/drive';
 import type { AppConfig } from '../config';
 import { HttpError } from '../errors';
+import { FILE_SERVICE_ROOT_BY_SCOPE, getFileServiceOrigin, getFileServiceParentPath, normalizeFileServiceRelativePath, resolveFileServiceTargetPath, toExternalRemoteFsClientPath } from '../services/drive-file-service';
 import { resolveClientfsFilePath, resolveHomeFilePath } from '../services/file-store';
 import { sendJson } from '../utils/http';
 
 const SUPPORTED_EXTENSIONS = new Set(['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv', 'odt', 'ods', 'odp']);
 const SHARED_CENTER_PATH = '.shared-center';
-const FILE_SERVICE_ROOT_BY_SCOPE: Record<Extract<LazycatDriveScope, 'external' | 'mount'>, string> = {
-  external: '/.media',
-  mount: '/.remotefs'
-};
 
 interface FileServiceDirectoryResponse {
   data?: FileServiceEntry[];
@@ -43,7 +40,7 @@ export async function handleDriveList(
     return handleLocalDriveList(response, config, requestedPath, scope, resolveDriveOwnerUid(request, config));
   }
 
-  return handleFileServiceDriveList(request, response, config, requestedPath, scope);
+  return handleFileServiceDriveList(request, response, config, requestedPath, scope, resolveDriveOwnerUid(request, config));
 }
 
 async function handleLocalDriveList(
@@ -53,7 +50,7 @@ async function handleLocalDriveList(
   scope: LazycatDriveScope,
   ownerUid: string
 ): Promise<void> {
-  const relativePath = resolveLocalDrivePath(requestedPath, scope);
+  const relativePath = resolveLocalDrivePath(requestedPath, scope, ownerUid);
   const targetPath = scope === 'client'
     ? resolveClientfsFilePath(relativePath, config, ownerUid)
     : resolveHomeFilePath(relativePath, config, ownerUid);
@@ -78,8 +75,12 @@ function resolveDriveOwnerUid(request: IncomingMessage, config: AppConfig): stri
   return headerUserId || config.deployUid || '';
 }
 
-function resolveLocalDrivePath(requestedPath: string, scope: LazycatDriveScope): string {
+function resolveLocalDrivePath(requestedPath: string, scope: LazycatDriveScope, ownerUid = ''): string {
   const normalizedPath = requestedPath ? normalizeDrivePath(requestedPath) : '';
+
+  if (scope === 'client') {
+    return stripClientfsOwnerPrefix(normalizedPath, ownerUid);
+  }
 
   if (scope !== 'shared') {
     return normalizedPath;
@@ -94,6 +95,18 @@ function resolveLocalDrivePath(requestedPath: string, scope: LazycatDriveScope):
   }
 
   return joinDrivePath(SHARED_CENTER_PATH, normalizedPath);
+}
+
+function stripClientfsOwnerPrefix(relativePath: string, ownerUid: string): string {
+  if (!relativePath || !ownerUid) {
+    return relativePath;
+  }
+
+  return relativePath === ownerUid
+    ? ''
+    : relativePath.startsWith(`${ownerUid}/`)
+      ? relativePath.slice(ownerUid.length + 1)
+      : relativePath;
 }
 
 function toClientLocalDrivePath(relativePath: string, scope: LazycatDriveScope): string {
@@ -117,20 +130,20 @@ async function handleFileServiceDriveList(
   response: ServerResponse,
   config: AppConfig,
   requestedPath: string,
-  scope: Extract<LazycatDriveScope, 'external' | 'mount'>
+  scope: Extract<LazycatDriveScope, 'external' | 'mount'>,
+  ownerUid: string
 ): Promise<void> {
-  const rootPath = FILE_SERVICE_ROOT_BY_SCOPE[scope];
-  const fileServicePath = requestedPath ? normalizeFileServicePath(requestedPath, rootPath) : rootPath;
+  const target = resolveFileServiceTargetPath(scope, requestedPath);
   const fileServiceOrigin = getFileServiceOrigin(request, config);
-  const payload = await fetchFileServiceDirectory(fileServiceOrigin, fileServicePath, request.headers.cookie);
+  const payload = await fetchFileServiceDirectory(fileServiceOrigin, target.absolutePath, ownerUid, request.headers.cookie);
   const entries = (payload.data || [])
-    .map((entry) => toFileServiceDriveEntry(entry, scope))
+    .map((entry) => toFileServiceDriveEntry(entry, scope, target))
     .filter((entry): entry is LazycatDriveEntry => Boolean(entry))
     .sort(compareEntries);
 
   console.log('[drive] file service list', {
     scope,
-    path: fileServicePath,
+    path: target.absolutePath,
     origin: fileServiceOrigin,
     count: entries.length,
     total: payload.total ?? entries.length
@@ -138,13 +151,13 @@ async function handleFileServiceDriveList(
 
   sendJson(response, 200, {
     scope,
-    path: fileServicePath,
-    parentPath: getFileServiceParentPath(fileServicePath, rootPath),
+    path: target.relativePath,
+    parentPath: getFileServiceParentPath(target.relativePath),
     entries
   } satisfies LazycatDriveListResponse);
 }
 
-async function fetchFileServiceDirectory(origin: string, targetPath: string, cookie?: string): Promise<FileServiceDirectoryResponse> {
+async function fetchFileServiceDirectory(origin: string, targetPath: string, ownerUid: string, cookie?: string): Promise<FileServiceDirectoryResponse> {
   const apiUrl = `${origin}/api/webdav/getDirectoryContents`;
   const result = await fetch(apiUrl, {
     method: 'POST',
@@ -161,7 +174,7 @@ async function fetchFileServiceDirectory(origin: string, targetPath: string, coo
       type: '',
       mimeType: '',
       includeHidden: false,
-      owner: '',
+      owner: ownerUid,
       extname: '',
       ignoreName: ''
     })
@@ -212,10 +225,17 @@ async function toLocalDriveEntry(
   };
 }
 
-function toFileServiceDriveEntry(entry: FileServiceEntry, scope: Extract<LazycatDriveScope, 'external' | 'mount'>): LazycatDriveEntry | null {
+function toFileServiceDriveEntry(
+  entry: FileServiceEntry,
+  scope: Extract<LazycatDriveScope, 'external' | 'mount'>,
+  target: ReturnType<typeof resolveFileServiceTargetPath>
+): LazycatDriveEntry | null {
   const type = entry.type === 'directory' ? 'directory' : entry.type === 'file' ? 'file' : null;
-  const entryPath = normalizeReturnedFileServicePath(entry.filename || '', FILE_SERVICE_ROOT_BY_SCOPE[scope]);
-  const name = entry.basename || path.posix.basename(entryPath);
+  const serviceEntryPath = normalizeReturnedFileServicePath(entry.filename || '', target.rootPath);
+  const entryPath = target.rootPath === FILE_SERVICE_ROOT_BY_SCOPE.mount && scope === 'external'
+    ? toExternalRemoteFsClientPath(serviceEntryPath)
+    : serviceEntryPath;
+  const name = entry.basename || path.posix.basename(serviceEntryPath);
 
   if (!type || !entryPath || !name) {
     return null;
@@ -242,24 +262,12 @@ function normalizeDrivePath(input: string): string {
   return path.posix.normalize(`/${input.replace(/\\/g, '/')}`).replace(/^\/+/, '').replace(/^\.$/, '');
 }
 
-function normalizeFileServicePath(input: string, rootPath: string): string {
-  const raw = input.replace(/\0/g, '').replace(/\\/g, '/');
-  const absolutePath = raw.startsWith('/') ? raw : joinDrivePath(rootPath, raw);
-  const normalized = path.posix.normalize(absolutePath);
-
-  if (normalized !== rootPath && !normalized.startsWith(`${rootPath}/`)) {
-    throw new HttpError(400, 'unsafe_drive_path', 'Drive path escapes the selected Lazycat drive scope.');
-  }
-
-  return normalized;
-}
-
 function normalizeReturnedFileServicePath(input: string, rootPath: string): string {
   if (!input) {
     return '';
   }
 
-  return normalizeFileServicePath(input, rootPath);
+  return normalizeFileServiceRelativePath(input, rootPath);
 }
 
 function joinDrivePath(parentPath: string, name: string): string {
@@ -273,15 +281,6 @@ function getLocalParentPath(input: string): string {
 
   const parent = path.posix.dirname(input);
   return parent === '.' ? '' : parent;
-}
-
-function getFileServiceParentPath(input: string, rootPath: string): string {
-  if (!input || input === rootPath) {
-    return '';
-  }
-
-  const parent = path.posix.dirname(input);
-  return parent === rootPath ? '' : parent;
 }
 
 function normalizeLastModified(value: number | string | undefined): string {
@@ -298,27 +297,8 @@ function normalizeLastModified(value: number | string | undefined): string {
   return '';
 }
 
-function getFileServiceOrigin(request: IncomingMessage, config: AppConfig): string {
-  const fallback = new URL(config.appOrigin);
-  const host = firstHeader(request.headers['x-forwarded-host']) || request.headers.host || fallback.host;
-  const protocol = firstHeader(request.headers['x-forwarded-proto']) || fallback.protocol.replace(/:$/, '') || 'https';
-  const boxDomain = getBoxDomain(host);
-  return `${protocol}://file.${boxDomain}`;
-}
-
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function getBoxDomain(host: string): string {
-  const hostname = host.split(':')[0] || host;
-  const parts = hostname.split('.').filter(Boolean);
-
-  if (parts.length <= 2) {
-    return hostname;
-  }
-
-  return parts.slice(1).join('.');
 }
 
 function compareEntries(a: LazycatDriveEntry, b: LazycatDriveEntry): number {

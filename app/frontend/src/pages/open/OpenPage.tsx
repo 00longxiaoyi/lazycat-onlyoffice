@@ -242,7 +242,7 @@ function safeStringify(value: unknown): string {
 
 
 function normalizeOpenFileUrl(input: string): string {
-  if (input.startsWith('clientfs:')) {
+  if (input.startsWith('clientfs:') || input.startsWith('drive:')) {
     return input;
   }
 

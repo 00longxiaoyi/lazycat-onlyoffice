@@ -1,5 +1,5 @@
 export type OpenSource = 'home-picker' | 'file-handler' | 'recent' | 'manual' | 'url' | 'clientfs';
-export type FileStorageType = 'lazycat-file' | 'local-path' | 'remote-url' | 'clientfs';
+export type FileStorageType = 'lazycat-file' | 'local-path' | 'remote-url' | 'clientfs' | 'drive-file-service';
 
 export interface LazycatFileInput {
   fileUrl: string;
@@ -14,4 +14,5 @@ export interface NormalizedLazycatFile {
   title: string;
   fileType: string;
   storageType: FileStorageType;
+  driveScope?: 'external' | 'mount';
 }

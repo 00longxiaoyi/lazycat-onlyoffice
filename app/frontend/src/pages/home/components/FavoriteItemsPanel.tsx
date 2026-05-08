@@ -1,12 +1,7 @@
 import { useState } from 'react';
 import type { FavoriteItemRecord } from '../../../../../shared/favorite';
 import { ConfirmDialog } from '../../../components/ConfirmDialog';
-import { SvgIcon } from '../../../components/SvgIcon';
-import excelIcon from '../../../icon/excel.svg?raw';
-import folderIcon from '../../../icon/folder.svg?raw';
-import pdfIcon from '../../../icon/pdf.svg?raw';
-import pptIcon from '../../../icon/ppt.svg?raw';
-import wordIcon from '../../../icon/word.svg?raw';
+import { Icon, getFileIconName } from '../../../components/Icon';
 
 type FavoriteItemsPanelProps = {
   items: FavoriteItemRecord[];
@@ -63,7 +58,7 @@ export function FavoriteItemsPanel({ items, loading, error, onDeleteItem, onOpen
               event.stopPropagation();
               setDeleteTarget(item);
             }}>
-              <span aria-hidden="true">★</span>
+              <Icon name="favorite" />
             </button>
             <FavoriteIcon item={item} />
             <span className="favorite-main">
@@ -90,17 +85,7 @@ export function FavoriteItemsPanel({ items, loading, error, onDeleteItem, onOpen
 }
 
 function FavoriteIcon({ item }: { item: FavoriteItemRecord }) {
-  const icon = item.type === 'directory' ? folderIcon : getFileIconSrc(item.fileType);
-  return <SvgIcon svg={icon} className="favorite-file-icon" />;
-}
-
-function getFileIconSrc(fileType: string): string {
-  const ext = fileType.toLowerCase();
-  if (['doc', 'docx', 'odt', 'txt'].includes(ext)) return wordIcon;
-  if (['xls', 'xlsx', 'ods', 'csv'].includes(ext)) return excelIcon;
-  if (['ppt', 'pptx', 'odp'].includes(ext)) return pptIcon;
-  if (ext === 'pdf') return pdfIcon;
-  return wordIcon;
+  return <Icon name={item.type === 'directory' ? 'folder' : getFileIconName(item.fileType)} className="favorite-file-icon" />;
 }
 
 function formatFavoritePath(item: FavoriteItemRecord): string {

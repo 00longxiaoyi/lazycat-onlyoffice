@@ -23,7 +23,7 @@
 
 .online-url-title {
   color: #165dff;
-  font-size: 36px;
+  font-size: var(--font-size-display);
   font-weight: 700;
   letter-spacing: 0.04em;
   line-height: 1.2;
@@ -34,7 +34,7 @@
   margin-top: 10px;
   margin-bottom: 28px;
   color: #6b7280;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   text-align: center;
 }
 
@@ -55,7 +55,7 @@
   padding: 0 18px;
   color: #1f2329;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   background: #fff;
   border: 0;
   outline: none;
@@ -69,7 +69,7 @@
   width: 112px;
   color: #fff;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--font-size-base);
   font-weight: 600;
   cursor: pointer;
   background: #165dff;
@@ -84,7 +84,7 @@
   width: min(760px, 100%);
   margin-top: 14px;
   color: #86909c;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   text-align: left;
 }
 
@@ -101,7 +101,7 @@
 .online-url-history-title {
   margin-bottom: 10px;
   color: #1f2329;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 600;
 }
 
@@ -116,7 +116,7 @@
   padding: 0 8px;
   color: #4b5563;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
   text-align: left;
   cursor: pointer;
   overflow: hidden;

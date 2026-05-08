@@ -27,7 +27,7 @@
 
 .editor-status h2 {
   margin: 0 0 10px;
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 600;
 }
 
@@ -53,7 +53,7 @@
 
 .editor-status h2 {
   margin-bottom: 20px;
-  font-size: 22px;
+  font-size: 20px;
 }
 
 .editor-conflict {
@@ -63,7 +63,7 @@
 
 .editor-conflict-alert {
   color: #c2410c;
-  font-size: 18px;
+  font-size: var(--font-size-title);
   font-weight: 600;
 }
 
@@ -71,7 +71,7 @@
   min-width: 0;
   overflow: hidden;
   color: #6b7280;
-  font-size: 16px;
+  font-size: var(--font-size-base);
   line-height: 1.5;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -88,11 +88,11 @@
   height: 42px;
   padding: 0 22px;
   border-radius: 8px;
-  font-size: 16px;
+  font-size: var(--font-size-base);
 }
 
 .editor-script-state {
   margin-top: 22px;
   color: #6b7280;
-  font-size: 14px;
+  font-size: var(--font-size-meta);
 }

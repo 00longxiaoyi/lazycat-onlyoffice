@@ -1,9 +1,9 @@
 :root {
   --font-size-micro: 10px;
-  --font-size-meta: 14px;
-  --font-size-base: 16px;
-  --font-size-title: 18px;
-  --font-size-display: 28px;
+  --font-size-meta: 12px;
+  --font-size-base: 14px;
+  --font-size-title: 16px;
+  --font-size-display: 24px;
 }
 
 body {
@@ -76,7 +76,7 @@ body {
 }
 
 .recent-file-main small {
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.25;
 }
 
@@ -92,5 +92,5 @@ body {
 }
 
 :is(.drive-filter-tab, .drive-scope-tab) {
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }

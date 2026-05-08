@@ -3,6 +3,7 @@ import { pipeline } from 'node:stream/promises';
 import type { AppConfig } from '../config';
 import { HttpError } from '../errors';
 import { getSession } from '../db/session-store';
+import { fetchFileServicePath, getFileServiceOrigin, resolveFileServiceTargetPath } from '../services/drive-file-service';
 import { createReadStreamForRelativePath, resolveClientfsFilePath, resolveHomeFilePath, saveFromUrl } from '../services/file-store';
 import { readJsonBody, sendJson } from '../utils/http';
 
@@ -25,6 +26,10 @@ export async function handleDownload(
 
   if (session.storageType === 'remote-url') {
     return proxyOriginalFileDownload(session, request, response, headOnly);
+  }
+
+  if (session.storageType === 'drive-file-service') {
+    return proxyDriveFileServiceDownload(session, request, response, config, headOnly);
   }
 
   if (session.storageType === 'lazycat-file' || session.fileOrigin) {
@@ -198,6 +203,19 @@ export async function handleCallback(sessionId: string, request: IncomingMessage
       return sendJson(response, 200, { error: 0 });
     }
 
+    if (session.storageType === 'drive-file-service') {
+      await saveDriveFileServiceDocumentFromUrl(payload.url, session, request, config);
+      console.log('[callback] saved drive file service document', {
+        sessionId,
+        status,
+        title: session.title,
+        relativePath: session.relativePath,
+        ownerUid: session.ownerUid,
+        driveScope: session.driveScope
+      });
+      return sendJson(response, 200, { error: 0 });
+    }
+
     try {
       await saveFromUrl(
         payload.url,
@@ -226,6 +244,112 @@ export async function handleCallback(sessionId: string, request: IncomingMessage
   }
 
   sendJson(response, 200, { error: 0 });
+}
+
+async function proxyDriveFileServiceDownload(
+  session: Awaited<ReturnType<typeof getRequiredSession>>,
+  request: IncomingMessage,
+  response: ServerResponse,
+  config: AppConfig,
+  headOnly: boolean
+): Promise<void> {
+  if (!session.driveScope) {
+    throw new HttpError(400, 'missing_drive_scope', 'Drive file session is missing scope.');
+  }
+
+  const target = resolveFileServiceTargetPath(session.driveScope, session.relativePath);
+  const origin = getFileServiceOrigin(request, config);
+  const upstream = await fetchFileServicePath(origin, target.absolutePath, session.ownerUid, {
+    method: headOnly ? 'HEAD' : 'GET',
+    headers: {
+      ...(request.headers.range ? { range: request.headers.range } : {})
+    }
+  });
+
+  if (!upstream.ok && upstream.status !== 206) {
+    throw new HttpError(upstream.status, 'drive_file_download_failed', `Failed to fetch drive file: ${upstream.status}`);
+  }
+
+  assertDriveFileResponseIsDocument(upstream, session.fileType);
+
+  console.log('[download] drive file service proxy request', {
+    sessionId: session.id,
+    title: session.title,
+    relativePath: session.relativePath,
+    targetPath: target.absolutePath,
+    status: upstream.status,
+    headOnly
+  });
+
+  const filename = encodeURIComponent(session.title);
+  const headers: Record<string, string> = {
+    'content-type': upstream.headers.get('content-type') || contentTypeFor(session.fileType),
+    'content-disposition': `attachment; filename*=UTF-8''${filename}`,
+    'accept-ranges': upstream.headers.get('accept-ranges') || 'bytes',
+    'cache-control': 'no-store'
+  };
+
+  const contentLength = upstream.headers.get('content-length');
+  const contentRange = upstream.headers.get('content-range');
+  if (contentLength) headers['content-length'] = contentLength;
+  if (contentRange) headers['content-range'] = contentRange;
+
+  response.writeHead(upstream.status, headers);
+
+  if (headOnly) {
+    response.end();
+    return;
+  }
+
+  if (!upstream.body) {
+    throw new HttpError(502, 'empty_drive_file_download', 'Drive file response body is empty.');
+  }
+
+  await pipeline(upstream.body, response);
+}
+
+async function saveDriveFileServiceDocumentFromUrl(
+  sourceUrl: string,
+  session: Awaited<ReturnType<typeof getRequiredSession>>,
+  request: IncomingMessage,
+  config: AppConfig
+): Promise<void> {
+  if (!session.driveScope) {
+    throw new HttpError(400, 'missing_drive_scope', 'Drive file session is missing scope.');
+  }
+
+  const download = await fetch(sourceUrl);
+  if (!download.ok) {
+    throw new HttpError(502, 'callback_download_failed', `Failed to download saved document: ${download.status}`);
+  }
+
+  const target = resolveFileServiceTargetPath(session.driveScope, session.relativePath);
+  const body = Buffer.from(await download.arrayBuffer());
+  const upload = await fetchFileServicePath(getFileServiceOrigin(request, config), target.absolutePath, session.ownerUid, {
+    method: 'PUT',
+    headers: {
+      'content-type': download.headers.get('content-type') || contentTypeFor(session.fileType),
+      'content-length': String(body.byteLength)
+    },
+    body
+  });
+
+  if (!upload.ok) {
+    throw new HttpError(upload.status, 'drive_file_writeback_failed', `Drive file writeback failed: ${upload.status}`);
+  }
+}
+
+function assertDriveFileResponseIsDocument(response: Response, fileType: string): void {
+  const contentType = response.headers.get('content-type') || '';
+  if (!/text\/html/i.test(contentType)) {
+    return;
+  }
+
+  throw new HttpError(
+    502,
+    'drive_file_auth_required',
+    `Drive file service returned HTML while downloading .${fileType}; authentication may be required.`
+  );
 }
 
 async function saveRemoteDocumentFromUrl(sourceUrl: string, targetUrl: string, fileType: string): Promise<void> {

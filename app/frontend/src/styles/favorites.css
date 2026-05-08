@@ -14,7 +14,7 @@
   background: transparent;
   border: 0;
   border-radius: 50%;
-  font-size: 18px;
+  font-size: var(--font-size-title);
   line-height: 1;
 }
 
@@ -71,7 +71,7 @@
 .favorite-remove-button {
   width: 30px;
   height: 30px;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .favorite-file-icon {
@@ -95,16 +95,28 @@
 }
 
 .favorite-title {
-  font-size: 16px;
+  font-size: var(--font-size-base);
   font-weight: 500;
 }
 
 .favorite-main small {
   color: #8b95a5;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 1.25;
 }
 
 .favorite-panel .drive-empty {
   min-height: 100%;
+}
+
+.favorite-remove-button {
+  width: 24px;
+  height: 24px;
+}
+
+.favorite-file-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+  color: #374151;
 }

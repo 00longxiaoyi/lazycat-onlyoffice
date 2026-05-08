@@ -38,19 +38,19 @@ body,
   align-content: start;
 }
 
-.svg-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-}
-
-.svg-icon svg {
-  display: block;
+.app-icon {
   width: 100%;
   height: 100%;
+  display: inline-block;
+  flex: 0 0 auto;
+  line-height: 1;
 }
 
 body {
   background: #fff;
+}
+
+.app-icon {
+  color: currentColor;
+  vertical-align: middle;
 }

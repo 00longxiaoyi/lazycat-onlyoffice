@@ -7,12 +7,21 @@
 
 .drive-nav-button {
   height: 30px;
-  padding: 0 12px;
+  width: 30px;
+  padding: 0;
   color: #1f2329;
   cursor: pointer;
   background: #fff;
   border: 1px solid #dcdfe6;
   border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.drive-nav-button .app-icon {
+  width: 16px;
+  height: 16px;
 }
 
 .drive-nav-button:disabled {
@@ -28,7 +37,7 @@
   max-width: min(860px, 62vw);
   color: #6b7280;
   overflow: hidden;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -57,6 +66,31 @@
 .drive-path-part {
   display: inline-flex;
   flex: 0 1 auto;
+}
+
+.drive-path-button {
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.drive-path-button:hover {
+  color: #1f2329;
+  text-decoration: underline;
+}
+
+.drive-path-button:focus-visible {
+  outline: 2px solid #7aa7ff;
+  outline-offset: 2px;
+  border-radius: 3px;
 }
 
 .drive-path-parent {
@@ -91,7 +125,7 @@
   padding: 0 10px;
   color: #4e5969;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
@@ -136,7 +170,7 @@
   z-index: 1;
   height: 38px;
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
   background: #fff;
   border-bottom: 1px solid #eef0f3;
 }
@@ -146,7 +180,7 @@
   height: 36px;
   color: #1f2329;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
   text-align: left;
   cursor: pointer;
   background: transparent;
@@ -197,14 +231,14 @@
   place-items: center;
   padding: 24px;
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
   text-align: center;
 }
 
 .error-text {
   margin-top: 10px;
   color: #c2410c;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
 }
 
 
@@ -317,7 +351,7 @@
 .drive-filter-tab {
   height: 34px;
   padding: 0 16px;
-  font-size: 16px;
+  font-size: var(--font-size-base);
   border-radius: 7px;
 }
 
@@ -330,9 +364,15 @@
 
 .drive-nav-button {
   height: 38px;
-  padding: 0 18px;
-  font-size: 16px;
+  width: 38px;
+  padding: 0;
+  font-size: var(--font-size-base);
   border-radius: 7px;
+}
+
+.drive-nav-button .app-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .drive-list-head {
@@ -368,7 +408,7 @@
 .drive-scope-tab,
 .drive-list-head,
 .drive-row {
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 .drive-filter-tab,
@@ -379,13 +419,13 @@
 
 .drive-nav-button,
 .drive-path {
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 
 .drive-filter-tab,
 .drive-scope-tab {
-  font-size: 11px;
+  font-size: var(--font-size-meta);
 }
 
 .drive-list-head {
@@ -485,7 +525,7 @@
   justify-content: center;
   height: 24px;
   padding: 0 9px;
-  font-size: 11px;
+  font-size: var(--font-size-meta);
   line-height: 1;
   border-radius: 6px;
 }
@@ -500,7 +540,7 @@
 
 .drive-filter-tab,
 .drive-scope-tab {
-  font-size: 14px;
+  font-size: var(--font-size-base);
 }
 
 .drive-toolbar-actions,
@@ -508,5 +548,62 @@
 .drive-toolbar-actions .drive-scope-tabs,
 .drive-toolbar-actions .drive-filter-tab,
 .drive-toolbar-actions .drive-scope-tab {
-  font-size: 14px !important;
+  font-size: var(--font-size-base) !important;
+}
+
+.drive-nav-button {
+  width: 34px;
+  height: 34px;
+  color: #6b7280;
+}
+
+.drive-nav-button .app-icon {
+  width: 18px;
+  height: 18px;
+}
+
+.drive-row {
+  height: 40px;
+  color: #374151;
+}
+
+.drive-name {
+  gap: 8px;
+  line-height: 20px;
+}
+
+.drive-icon {
+  width: 20px;
+  height: 20px;
+  min-width: 20px;
+  min-height: 20px;
+  flex: 0 0 20px;
+  margin-top: 0;
+  color: #374151;
+  transform: none;
+}
+
+.favorite-toggle {
+  width: 22px;
+  height: 22px;
+  color: #cbd5e1;
+}
+
+.favorite-toggle .app-icon {
+  width: 15px;
+  height: 15px;
+}
+
+.favorite-toggle:hover,
+.favorite-toggle.is-active {
+  color: #f59e0b;
+  background: transparent;
+}
+
+.drive-error-state {
+  color: #c2410c;
+}
+
+.drive-error-footer {
+  display: none;
 }

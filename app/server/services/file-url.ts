@@ -1,10 +1,16 @@
 import path from 'node:path';
 import type { NormalizedLazycatFile } from '../../shared/file';
 import { HttpError } from '../errors';
+import { parseDriveFileUrl } from './drive-file-service';
 
 const FILE_PREFIX = '/_lzc/files/home/';
 
 export function normalizeLazycatFileUrl(fileUrl: string): NormalizedLazycatFile {
+  const driveFile = parseDriveFileUrl(fileUrl);
+  if (driveFile) {
+    return normalizeDriveFileServicePath(fileUrl, driveFile.scope, driveFile.relativePath);
+  }
+
   if (fileUrl.startsWith('clientfs:')) {
     return normalizeClientfsRelativePath(fileUrl.slice('clientfs:'.length));
   }
@@ -53,6 +59,30 @@ export function normalizeLazycatFileUrl(fileUrl: string): NormalizedLazycatFile 
     title,
     fileType,
     storageType: 'lazycat-file'
+  };
+}
+
+function normalizeDriveFileServicePath(
+  originalUrl: string,
+  driveScope: 'external' | 'mount',
+  relativePath: string
+): NormalizedLazycatFile {
+  const title = path.posix.basename(relativePath) || 'document';
+  const fileType = path.posix.extname(title).replace(/^\./, '').toLowerCase();
+
+  if (!fileType) {
+    throw new HttpError(415, 'unsupported_file_type', 'Drive file path does not contain a file extension.');
+  }
+
+  return {
+    originalUrl,
+    fileOrigin: '',
+    relativePath,
+    ownerUid: '',
+    title,
+    fileType,
+    storageType: 'drive-file-service',
+    driveScope
   };
 }
 

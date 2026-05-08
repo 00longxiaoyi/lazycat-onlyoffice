@@ -34,7 +34,7 @@
   padding: 0 10px;
   color: #4b5563;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
@@ -90,7 +90,7 @@
   width: 18px;
   height: 18px;
   flex: 0 0 auto;
-  font-size: 18px;
+  font-size: var(--font-size-title);
 }
 
 
@@ -117,7 +117,7 @@
 .home-empty-panel p {
   margin: 0 0 16px;
   color: #6b7280;
-  font-size: 13px;
+  font-size: var(--font-size-meta);
 }
 
 
@@ -131,7 +131,7 @@
 
 .panel h2 {
   margin: 0 0 14px;
-  font-size: 16px;
+  font-size: var(--font-size-title);
   font-weight: 600;
 }
 
@@ -166,7 +166,7 @@
   padding: 0;
   color: #86909c;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   font-weight: 500;
   cursor: pointer;
   background: transparent;
@@ -179,7 +179,7 @@
 
 .home-title-tab.is-active {
   color: #1f2329;
-  font-size: 16px;
+  font-size: var(--font-size-title);
   font-weight: 700;
 }
 
@@ -208,7 +208,7 @@
 .home-nav-icon {
   width: 20px;
   height: 20px;
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .home-nav-item {
@@ -231,7 +231,7 @@
   height: 30px;
   min-width: 30px;
   min-height: 30px;
-  font-size: 30px;
+  font-size: 24px;
 }
 
 .home-title-tabs {
@@ -245,7 +245,7 @@
   position: relative;
   min-height: 32px;
   color: #6b7280;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 600;
   line-height: 32px;
   transition: color 180ms ease, transform 180ms ease, font-weight 180ms ease;
@@ -272,7 +272,7 @@
 
 .home-title-tab.is-active {
   color: #111827;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
   transform: translateY(-1px);
 }
@@ -312,7 +312,7 @@
   height: 30px;
   min-width: 30px;
   min-height: 30px;
-  font-size: 30px;
+  font-size: 24px;
 }
 
 .home-layout {
@@ -336,4 +336,25 @@
 
 .home-content {
   background: #fff;
+}
+
+.home-nav-item {
+  gap: 10px;
+  height: 40px;
+  color: #4b5563;
+  font-size: var(--font-size-base);
+}
+
+.home-nav-icon {
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  color: currentColor;
+}
+
+.home-nav-item.is-active {
+  color: #1f2329;
+  background: #f7f8fa;
+  border-color: #e5e7eb;
 }

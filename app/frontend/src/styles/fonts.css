@@ -14,7 +14,7 @@
 
 .fonts-status {
   color: #6b7280;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 .fonts-toolbar {
@@ -59,7 +59,7 @@
   border-radius: 8px;
 }
 
-.font-icon-button .svg-icon {
+.font-icon-button .app-icon {
   width: 16px;
   height: 16px;
 }
@@ -88,7 +88,7 @@
   border-radius: 6px;
 }
 
-.font-delete-icon-button .svg-icon {
+.font-delete-icon-button .app-icon {
   width: 25px;
   height: 25px;
 }
@@ -118,7 +118,7 @@
   margin-bottom: 12px;
   overflow: hidden;
   color: #165dff;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   line-height: 28px;
   text-align: center;
   background: #eaf2ff;
@@ -164,21 +164,21 @@
 
 .font-item strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--font-size-base);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .font-item small {
   color: #6b7280;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
 }
 
 .font-log-panel {
   margin-top: 16px;
   padding: 12px 14px;
   color: #4b5563;
-  font-size: 12px;
+  font-size: var(--font-size-meta);
   background: #f7f8fa;
   border: 1px solid #eef0f3;
   border-radius: 8px;
@@ -211,13 +211,19 @@
   background: transparent;
 }
 
-.font-icon-button .svg-icon,
-.font-delete-icon-button .svg-icon {
+.font-icon-button .app-icon,
+.font-delete-icon-button .app-icon {
   width: 30px;
   height: 30px;
 }
 
 .font-delete-icon-button span {
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
+}
+
+.font-icon-button .app-icon,
+.font-delete-icon-button .app-icon {
+  width: 18px;
+  height: 18px;
 }

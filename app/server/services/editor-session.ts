@@ -25,9 +25,14 @@ export async function createEditorSessionWithCookie(
   const now = new Date().toISOString();
   const id = createSessionId();
   const ownerUid = options.user.id;
-  const documentIdentity = normalized.storageType === 'remote-url'
-    ? `remote-url:${normalized.originalUrl}`
-    : await resolveDocumentIdentity(normalized.relativePath, ownerUid, config, normalized.storageType === 'clientfs' ? 'clientfs' : 'home');
+  const normalizedSession = normalized.storageType === 'clientfs'
+    ? { ...normalized, relativePath: stripClientfsOwnerPrefix(normalized.relativePath, ownerUid), originalUrl: `clientfs:${stripClientfsOwnerPrefix(normalized.relativePath, ownerUid)}` }
+    : normalized;
+  const documentIdentity = normalizedSession.storageType === 'remote-url'
+    ? `remote-url:${normalizedSession.originalUrl}`
+    : normalizedSession.storageType === 'drive-file-service'
+      ? `drive-file-service:${normalizedSession.driveScope || 'unknown'}:${ownerUid}:${normalizedSession.relativePath}`
+    : await resolveDocumentIdentity(normalizedSession.relativePath, ownerUid, config, normalizedSession.storageType === 'clientfs' ? 'clientfs' : 'home');
   const requestedMode: EditorSessionMode = request.mode === 'view' ? 'view' : 'edit';
   const activeSession = requestedMode === 'edit'
     ? await findActiveEditSession(documentIdentity, options.user.id)
@@ -57,7 +62,7 @@ export async function createEditorSessionWithCookie(
   const documentKey = createDocumentKey(`${documentIdentity}:${id}`);
 
   const session: EditorSessionRecord = {
-    ...normalized,
+    ...normalizedSession,
     ownerUid,
     id,
     documentType,
@@ -79,6 +84,18 @@ export async function createEditorSessionWithCookie(
     session,
     config: buildOnlyOfficeConfig(session, config)
   };
+}
+
+function stripClientfsOwnerPrefix(relativePath: string, ownerUid: string): string {
+  if (!relativePath || !ownerUid) {
+    return relativePath;
+  }
+
+  return relativePath === ownerUid
+    ? ''
+    : relativePath.startsWith(`${ownerUid}/`)
+      ? relativePath.slice(ownerUid.length + 1)
+      : relativePath;
 }
 
 

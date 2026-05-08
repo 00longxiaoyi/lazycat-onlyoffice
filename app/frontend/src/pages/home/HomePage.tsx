@@ -1,44 +1,23 @@
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { SvgIcon } from '../../components/SvgIcon';
-import { buildLazycatDriveFavoriteKey, LazycatDrivePanel, type LazycatDriveSelection } from '../../features/lazycat-drive';
+import type { LazycatDriveSelection } from '../../features/lazycat-drive';
 import { deleteFont, getOnlineUrlHistory, listFonts, refreshFonts, touchOnlineUrlHistory, uploadFont } from '../../lib/api/client';
 import { FavoriteItemsPanel } from './components/FavoriteItemsPanel';
+import { FontsPanel } from './components/FontsPanel';
+import { HomeDrivePanel } from './components/HomeDrivePanel';
+import { HomeSidebar } from './components/HomeSidebar';
+import { OnlineUrlPanel } from './components/OnlineUrlPanel';
 import { RecentFilesPanel } from './components/RecentFilesPanel';
+import { DEFAULT_HOME_MODULES, readEnabledModules, writeEnabledModules } from './homeModules';
 import { useFavoriteItems } from './hooks/useFavoriteItems';
 import { useRecentFiles } from './hooks/useRecentFiles';
+import { VIEW_PATHS, viewFromPath } from './navigation';
+import type { HomeView } from './types';
+import { addOnlineUrlHistoryItem, resolveOnlineUrlTitle } from './utils/onlineUrl';
 import type { FontFileItem } from '../../../../shared/fonts';
 import type { OnlineUrlHistoryRecord } from '../../../../shared/online-url';
 import type { FavoriteItemRecord } from '../../../../shared/favorite';
 import type { LazycatDriveScope } from '../../../../shared/drive';
-import favoriteIcon from '../../icon/favorite.svg?raw';
-import fontIcon from '../../icon/font.svg?raw';
-import homeIcon from '../../icon/home.svg?raw';
-import recentIcon from '../../icon/recent.svg?raw';
-import refreshIcon from '../../icon/refresh.svg?raw';
-import trashIcon from '../../icon/trash.svg?raw';
-import uploadIcon from '../../icon/upload.svg?raw';
-import urlMonitorIcon from '../../icon/url-monitor.svg?raw';
-
-type HomeView = 'home' | 'recent' | 'favorites' | 'online' | 'fonts';
-type HomeModuleKey = 'drive';
-
-const HOME_MODULE_STORAGE_KEY = 'onlyoffice.home.modules';
-const DEFAULT_HOME_MODULES: Record<HomeModuleKey, boolean> = {
-  drive: true
-};
-
-const HOME_MODULES: Array<{ key: HomeModuleKey; title: string; description: string }> = [
-  { key: 'drive', title: '懒猫网盘', description: '显示当前用户文件、共享文件、外接磁盘和网络挂载。' }
-];
-
-const VIEW_PATHS: Record<HomeView, string> = {
-  home: '/',
-  recent: '/recent',
-  favorites: '/favorites',
-  online: '/online',
-  fonts: '/fonts'
-};
 
 export function HomePage() {
   const { items, removeItem, clearItems } = useRecentFiles();
@@ -117,7 +96,7 @@ export function HomePage() {
   };
 
   const handleDriveFileSelected = (selection: LazycatDriveSelection) => {
-    window.open(`/open?url=${encodeURIComponent(selection.fileUrl)}`, '_blank', 'noopener,noreferrer');
+    openDocumentUrl(selection.fileUrl);
   };
 
   const handleOpenFavoriteDirectory = (item: FavoriteItemRecord) => {
@@ -157,14 +136,12 @@ export function HomePage() {
       .then(() => getOnlineUrlHistory())
       .then((result) => setOnlineUrlHistory(result.items))
       .catch((caught) => console.warn('[online-url-history] failed to save', caught));
-    window.open(`/open?url=${encodeURIComponent(trimmed)}`, '_blank', 'noopener,noreferrer');
+    openDocumentUrl(trimmed);
   };
 
-  const toggleModule = (key: HomeModuleKey) => {
-    setEnabledModules((current) => ({
-      ...current,
-      [key]: !current[key]
-    }));
+  const handleOnlineUrlChange = (value: string) => {
+    setOnlineUrl(value);
+    setOnlineUrlError('');
   };
 
   const handleFontUpload = async (file: File | undefined) => {
@@ -233,58 +210,20 @@ export function HomePage() {
     }
   };
 
-  const shouldShowDrive = enabledModules.drive;
-  const enabledCount = Number(shouldShowDrive);
-
   return (
     <main className="home-layout">
-      <aside className="home-sidebar" aria-label="主导航">
-        <nav className="home-nav">
-          <button className={`home-nav-item${view === 'home' ? ' is-active' : ''}`} type="button" onClick={() => navigateTo('home')}>
-            <Icon name="home" />
-            <span className="home-nav-label">首页</span>
-          </button>
-          <button className={`home-nav-item${view === 'recent' ? ' is-active' : ''}`} type="button" onClick={() => navigateTo('recent')}>
-            <Icon name="recent" />
-            <span className="home-nav-label">最近访问</span>
-          </button>
-          <button className={`home-nav-item${view === 'favorites' ? ' is-active' : ''}`} type="button" onClick={() => navigateTo('favorites')}>
-            <Icon name="favorite" />
-            <span className="home-nav-label">收藏</span>
-          </button>
-          <button className={`home-nav-item${view === 'online' ? ' is-active' : ''}`} type="button" onClick={() => navigateTo('online')}>
-            <Icon name="link" />
-            <span className="home-nav-label">在线 URL</span>
-          </button>
-          <button className={`home-nav-item${view === 'fonts' ? ' is-active' : ''}`} type="button" onClick={() => navigateTo('fonts')}>
-            <Icon name="font" />
-            <span className="home-nav-label">字体管理</span>
-          </button>
-        </nav>
-      </aside>
+      <HomeSidebar view={view} onNavigate={navigateTo} />
 
       {view === 'home' ? (
-        <section className="home-content" aria-label="首页模块">
-          {shouldShowDrive ? (
-            <section className="home-main-panel">
-              <LazycatDrivePanel
-                onFileSelected={handleDriveFileSelected}
-                favoriteKeys={new Set(favorites.items.map((item) => buildLazycatDriveFavoriteKey(item)))}
-                favoriteIdByKey={new Map(favorites.items.map((item) => [buildLazycatDriveFavoriteKey(item), item.id]))}
-                onAddFavorite={favorites.addItem}
-                onRemoveFavorite={favorites.removeItem}
-                jumpTarget={driveJumpTarget}
-              />
-            </section>
-          ) : null}
-          {enabledCount === 0 ? (
-            <section className="panel home-empty-panel">
-              <h2>首页暂无模块</h2>
-              <p>当前首页模块已全部隐藏，可以恢复默认模块。</p>
-              <button className="settings-primary-button" type="button" onClick={() => setEnabledModules(DEFAULT_HOME_MODULES)}>恢复默认</button>
-            </section>
-          ) : null}
-        </section>
+        <HomeDrivePanel
+          enabledModules={enabledModules}
+          favoriteItems={favorites.items}
+          driveJumpTarget={driveJumpTarget}
+          onFileSelected={handleDriveFileSelected}
+          onAddFavorite={favorites.addItem}
+          onRemoveFavorite={favorites.removeItem}
+          onRestoreDefaultModules={() => setEnabledModules(DEFAULT_HOME_MODULES)}
+        />
       ) : null}
 
       {view === 'recent' ? (
@@ -300,93 +239,29 @@ export function HomePage() {
       ) : null}
 
       {view === 'online' ? (
-        <section className="home-content online-url-content" aria-label="打开在线 URL">
-          <section className="panel online-url-panel">
-            <div className="online-url-search-shell">
-              <div className="online-url-title">URL 文档打开</div>
-              <div className="online-url-subtitle">输入一个可访问、可写入的 Word、Excel 或 PPT 在线文档链接</div>
-              <div className="online-url-form">
-                <input
-                  className="online-url-input"
-                  type="url"
-                  value={onlineUrl}
-                  placeholder="https://example.com/demo.docx"
-                  onChange={(event) => {
-                    setOnlineUrl(event.target.value);
-                    setOnlineUrlError('');
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      openOnlineUrl();
-                    }
-                  }}
-                />
-                <button className="online-url-button" type="button" onClick={openOnlineUrl}>打开</button>
-              </div>
-            </div>
-            {onlineUrlError ? <div className="error-text">{onlineUrlError}</div> : null}
-            <div className="online-url-hint">链接需要能被应用服务访问，并支持 HTTP PUT/WebDAV 同地址写回；否则可以打开编辑，但保存回写会失败。</div>
-            <div className="online-url-history">
-              <div className="online-url-history-title">打开记录</div>
-              {onlineUrlHistory.length ? (
-                <div className="online-url-history-list">
-                  {onlineUrlHistory.map((item) => (
-                    <button className="online-url-history-item" type="button" key={item.url} title={item.title} onClick={() => window.open(`/open?url=${encodeURIComponent(item.url)}`, '_blank', 'noopener,noreferrer')}>
-                      {item.title}
-                    </button>
-                  ))}
-                </div>
-              ) : <div className="online-url-history-empty">暂无打开记录</div>}
-            </div>
-          </section>
-        </section>
+        <OnlineUrlPanel
+          url={onlineUrl}
+          error={onlineUrlError}
+          history={onlineUrlHistory}
+          onUrlChange={handleOnlineUrlChange}
+          onOpenUrl={openOnlineUrl}
+          onOpenHistoryItem={openDocumentUrl}
+        />
       ) : null}
 
       {view === 'fonts' ? (
-        <section className="home-content fonts-content" aria-label="字体管理">
-          <section className="panel fonts-panel">
-            <div className="fonts-toolbar">
-              <div className="fonts-toolbar-status">
-                {fontStatus ? <div className="fonts-status">{fontStatus}</div> : null}
-                {fontError ? <div className="error-text">{fontError}</div> : null}
-              </div>
-              <div className="fonts-actions">
-                <label className={`font-icon-button font-upload-button${fontUploading ? ' is-disabled' : ''}`} title={fontUploading ? '上传中...' : '上传字体'} aria-label={fontUploading ? '上传中...' : '上传字体'}>
-                  <SvgIcon svg={uploadIcon} />
-                  <input type="file" accept=".ttf,.otf,.ttc" disabled={fontUploading} onChange={(event) => void handleFontUpload(event.target.files?.[0])} />
-                </label>
-                <button className="font-icon-button" type="button" disabled={fontRefreshing || fontUploading} title={fontRefreshing ? '刷新中...' : '刷新字体'} aria-label={fontRefreshing ? '刷新中...' : '刷新字体'} onClick={() => void handleFontRefresh()}>
-                  <SvgIcon svg={refreshIcon} />
-                </button>
-              </div>
-            </div>
-            {fontUploading ? (
-              <div className="font-upload-progress" aria-label="字体上传进度">
-                <div className="font-upload-progress-bar" style={{ width: `${fontUploadProgress}%` }} />
-                <span>{fontUploadProgress}%</span>
-              </div>
-            ) : null}
-            {fonts.length ? (
-              <div className="font-list">
-                {fonts.map((font) => (
-                  <div className="font-item" key={font.name}>
-                    <span>
-                      <strong>{font.name}</strong>
-                      <small>{formatFileSize(font.size)} · {formatDateTime(font.updatedAt)}</small>
-                    </span>
-                    <button className="font-delete-icon-button" type="button" title="删除字体" aria-label={`删除字体 ${font.name}`} onClick={() => setFontDeleteTarget(font)}>
-                      <span aria-hidden="true">×</span>
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : <div className="empty">暂无自定义字体。</div>}
-            <details className="font-log-panel">
-              <summary>字体刷新日志</summary>
-              {fontLogs.length ? <pre>{fontLogs.join('\n')}</pre> : <div className="empty">暂无刷新日志。</div>}
-            </details>
-          </section>
-        </section>
+        <FontsPanel
+          fonts={fonts}
+          status={fontStatus}
+          error={fontError}
+          uploading={fontUploading}
+          refreshing={fontRefreshing}
+          uploadProgress={fontUploadProgress}
+          logs={fontLogs}
+          onUpload={(file) => void handleFontUpload(file)}
+          onRefresh={() => void handleFontRefresh()}
+          onRequestDelete={setFontDeleteTarget}
+        />
       ) : null}
 
       <ConfirmDialog
@@ -400,7 +275,6 @@ export function HomePage() {
         onCancel={() => setFontDeleteTarget(null)}
         onConfirm={handleFontDelete}
       />
-
     </main>
   );
 }
@@ -425,115 +299,6 @@ function sleep(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
-type IconName = 'home' | 'recent' | 'favorite' | 'link' | 'font' | 'chevron-left' | 'chevron-right';
-
-function Icon({ name }: { name: IconName }) {
-  const svg = getIconSrc(name);
-  if (svg) {
-    return <SvgIcon svg={svg} className="home-nav-icon home-nav-svg-icon" />;
-  }
-
-  return <i className={`iconfont icon-${name} home-nav-icon`} aria-hidden="true" />;
-}
-
-function getIconSrc(name: IconName): string {
-  if (name === 'home') return homeIcon;
-  if (name === 'recent') return recentIcon;
-  if (name === 'favorite') return favoriteIcon;
-  if (name === 'link') return urlMonitorIcon;
-  if (name === 'font') return fontIcon;
-  return '';
-}
-
-function viewFromPath(pathname: string): HomeView {
-  if (pathname === '/recent' || pathname.startsWith('/recent/')) {
-    return 'recent';
-  }
-
-  if (pathname === '/favorites' || pathname.startsWith('/favorites/')) {
-    return 'favorites';
-  }
-
-  if (pathname === '/online' || pathname.startsWith('/online/')) {
-    return 'online';
-  }
-
-  if (pathname === '/fonts' || pathname.startsWith('/fonts/')) {
-    return 'fonts';
-  }
-
-  return 'home';
-}
-
-function formatFileSize(size: number): string {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatDateTime(input: string): string {
-  const date = new Date(input);
-  if (Number.isNaN(date.getTime())) {
-    return input;
-  }
-
-  return date.toLocaleString();
-}
-
-function addOnlineUrlHistoryItem(current: OnlineUrlHistoryRecord[], url: string, title: string): OnlineUrlHistoryRecord[] {
-  const nextItem = {
-    id: url,
-    ownerUid: '',
-    url,
-    title,
-    openedAt: new Date().toISOString()
-  };
-
-  return [nextItem, ...current.filter((item) => item.url !== url)].slice(0, 20);
-}
-
-function resolveOnlineUrlTitle(input: string): string {
-  try {
-    const url = new URL(input);
-    const pathName = decodeURIComponent(url.pathname.split('/').filter(Boolean).pop() || '');
-    const queryName = url.searchParams.get('filename') || url.searchParams.get('name') || '';
-    return sanitizeOnlineUrlTitle(pathName || queryName || input);
-  } catch {
-    return sanitizeOnlineUrlTitle(input);
-  }
-}
-
-function sanitizeOnlineUrlTitle(input: string): string {
-  const title = input.trim().replace(/[\\/:*?"<>|\0]/g, '_');
-  return title || '在线文档';
-}
-
-function readEnabledModules(): Record<HomeModuleKey, boolean> {
-  try {
-    const raw = window.localStorage.getItem(HOME_MODULE_STORAGE_KEY);
-    if (!raw) {
-      return DEFAULT_HOME_MODULES;
-    }
-
-    const parsed = JSON.parse(raw) as Partial<Record<HomeModuleKey, boolean>>;
-    return {
-      drive: typeof parsed.drive === 'boolean' ? parsed.drive : DEFAULT_HOME_MODULES.drive
-    };
-  } catch {
-    return DEFAULT_HOME_MODULES;
-  }
-}
-
-function writeEnabledModules(value: Record<HomeModuleKey, boolean>): void {
-  try {
-    window.localStorage.setItem(HOME_MODULE_STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // localStorage may be unavailable in restricted browser contexts.
-  }
+function openDocumentUrl(url: string): void {
+  window.open(`/open?url=${encodeURIComponent(url)}`, '_blank', 'noopener,noreferrer');
 }

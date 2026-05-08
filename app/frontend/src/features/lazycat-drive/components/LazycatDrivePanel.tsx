@@ -1,12 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LazycatDriveEntry, LazycatDriveScope } from '../../../../../shared/drive';
-import { SvgIcon } from '../../../components/SvgIcon';
+import { Icon, getFileIconName } from '../../../components/Icon';
 import { listLazycatDriveFiles } from '../../../lib/api/client';
-import excelIcon from '../../../icon/excel.svg?raw';
-import folderIcon from '../../../icon/folder.svg?raw';
-import pdfIcon from '../../../icon/pdf.svg?raw';
-import pptIcon from '../../../icon/ppt.svg?raw';
-import wordIcon from '../../../icon/word.svg?raw';
 import type { LazycatDriveSelection } from '../types';
 
 const DRIVE_FILTER_STORAGE_KEY = 'onlyoffice.drive.showSupportedOnly';
@@ -35,6 +30,12 @@ export function LazycatDrivePanel({ onFileSelected, favoriteKeys, favoriteIdByKe
   const [selectedPath, setSelectedPath] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const listRequestId = useRef(0);
+  const loadingRef = useRef(loading);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   useEffect(() => {
     writeStoredShowSupportedOnly(showSupportedOnly);
@@ -51,34 +52,61 @@ export function LazycatDrivePanel({ onFileSelected, favoriteKeys, favoriteIdByKe
     setSelectedPath('');
   }, [jumpTarget]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
+  const loadEntries = useCallback((options: { silent?: boolean; resetSelection?: boolean } = {}) => {
+    const requestId = listRequestId.current + 1;
+    const shouldRunSilently = Boolean(options.silent && !loadingRef.current);
+    listRequestId.current = requestId;
+
+    if (!shouldRunSilently) {
+      setLoading(true);
+    }
     setError('');
 
-    listLazycatDriveFiles(currentPath, scope)
+    void listLazycatDriveFiles(currentPath, scope)
       .then((result) => {
-        if (cancelled) return;
+        if (listRequestId.current !== requestId) return;
         setEntries(result.entries);
         setParentPath(result.parentPath);
-        setSelectedPath('');
+        if (options.resetSelection) {
+          setSelectedPath('');
+        }
       })
       .catch((caught) => {
-        if (cancelled) return;
-        setEntries([]);
-        setSelectedPath('');
-        setError(caught instanceof Error ? caught.message : '读取懒猫网盘失败');
+        if (listRequestId.current !== requestId) return;
+        if (!shouldRunSilently) {
+          setEntries([]);
+          setSelectedPath('');
+        }
+        setError(normalizeDriveError(caught));
       })
       .finally(() => {
-        if (!cancelled) {
+        if (listRequestId.current === requestId && !shouldRunSilently) {
           setLoading(false);
         }
       });
+  }, [currentPath, scope]);
+
+  useEffect(() => {
+    loadEntries({ resetSelection: true });
+  }, [loadEntries]);
+
+  useEffect(() => {
+    const refreshVisibleList = () => {
+      if (document.visibilityState === 'visible') {
+        loadEntries({ silent: true });
+      }
+    };
+
+    window.addEventListener('focus', refreshVisibleList);
+    document.addEventListener('visibilitychange', refreshVisibleList);
+    const intervalId = window.setInterval(refreshVisibleList, 30_000);
 
     return () => {
-      cancelled = true;
+      window.removeEventListener('focus', refreshVisibleList);
+      document.removeEventListener('visibilitychange', refreshVisibleList);
+      window.clearInterval(intervalId);
     };
-  }, [currentPath, scope]);
+  }, [loadEntries]);
 
   const displayedEntries = showSupportedOnly
     ? entries.filter((entry) => entry.type === 'directory' || entry.supported)
@@ -131,9 +159,9 @@ export function LazycatDrivePanel({ onFileSelected, favoriteKeys, favoriteIdByKe
       <div className="drive-toolbar">
         <div className="drive-breadcrumb">
           <button className="drive-nav-button" type="button" disabled={!currentPath} onClick={() => setCurrentPath(parentPath)}>
-            返回上级
+            <Icon name="back" />
           </button>
-          <DrivePath scope={scope} path={currentPath} />
+          <DrivePath scope={scope} path={currentPath} onNavigate={setCurrentPath} />
         </div>
         <div className="drive-toolbar-actions">
           <div className="drive-filter-tabs" aria-label="文件过滤">
@@ -158,7 +186,8 @@ export function LazycatDrivePanel({ onFileSelected, favoriteKeys, favoriteIdByKe
           <span>类型</span>
         </div>
         {loading ? <div className="drive-empty">正在读取...</div> : null}
-        {!loading && displayedEntries.length === 0 ? <div className="drive-empty">{showSupportedOnly ? '暂无可打开文件' : '暂无文件'}</div> : null}
+        {!loading && error ? <div className="drive-empty drive-error-state">{error}</div> : null}
+        {!loading && !error && displayedEntries.length === 0 ? <div className="drive-empty">{showSupportedOnly ? '暂无可打开文件' : '暂无文件'}</div> : null}
         {!loading ? displayedEntries.map((entry) => (
           <button
             className={`drive-row${entry.path === selectedPath ? ' is-selected' : ''}${entry.type === 'file' && !entry.supported ? ' is-disabled' : ''}`}
@@ -178,7 +207,7 @@ export function LazycatDrivePanel({ onFileSelected, favoriteKeys, favoriteIdByKe
                   void toggleFavorite(entry);
                 }}
                 onDoubleClick={(event) => event.stopPropagation()}
-              >★</button>
+              ><Icon name="favorite" /></button>
               <DriveIcon entry={entry} /><span className="drive-name-text">{entry.name}</span>
             </span>
             <span>{formatTime(entry.modifiedAt)}</span>
@@ -188,29 +217,60 @@ export function LazycatDrivePanel({ onFileSelected, favoriteKeys, favoriteIdByKe
         )) : null}
       </div>
 
-      {error ? <div className="error-text">{error}</div> : null}
+      {error ? <div className="error-text drive-error-footer">{error}</div> : null}
     </section>
   );
 }
 
-function DrivePath({ scope, path }: { scope: LazycatDriveScope; path: string }) {
+function normalizeDriveError(caught: unknown): string {
+  const rawMessage = caught instanceof Error ? caught.message : String(caught || '');
+  const parsed = parseErrorPayload(rawMessage);
+  const message = parsed?.error?.message || rawMessage;
+
+  if (/ENOENT/.test(message) && /clientfs/.test(message)) {
+    return '客户端文件目录不存在或已断开连接，请返回上级或重新选择客户端文件。';
+  }
+
+  return message || '读取懒猫网盘失败';
+}
+
+function parseErrorPayload(input: string): { error?: { message?: string } } | null {
+  try {
+    return JSON.parse(input) as { error?: { message?: string } };
+  } catch {
+    return null;
+  }
+}
+
+function DrivePath({ scope, path, onNavigate }: { scope: LazycatDriveScope; path: string; onNavigate: (path: string) => void }) {
+  const scopeLabel = getScopeLabel(scope);
+
   if (!path) {
-    return <span className="drive-path" title={getScopeLabel(scope)}>{getScopeLabel(scope)}</span>;
+    return <span className="drive-path" title={scopeLabel}>{scopeLabel}</span>;
   }
 
   const parts = path.split('/').filter(Boolean);
-  const visibleParts = parts.slice(-3);
-  const isTruncated = parts.length > visibleParts.length;
-  const fullPath = `${getScopeLabel(scope)}/${path}`;
+  const visibleStartIndex = Math.max(0, parts.length - 3);
+  const visibleParts = parts.slice(visibleStartIndex);
+  const isTruncated = visibleStartIndex > 0;
+  const fullPath = `${scopeLabel}/${path}`;
 
   return (
     <span className="drive-path" title={fullPath}>
-      <span className="drive-path-scope">{getScopeLabel(scope)}</span>
+      <button className="drive-path-button drive-path-scope" type="button" onClick={() => onNavigate('')}>
+        {scopeLabel}
+      </button>
       <span className="drive-path-separator">/</span>
       {isTruncated ? <><span className="drive-path-parent">...</span><span className="drive-path-separator">/</span></> : null}
       {visibleParts.map((part, index) => (
         <span className="drive-path-part" key={`${part}-${index}`}>
-          <span className={index === visibleParts.length - 1 ? 'drive-path-current' : 'drive-path-parent'}>{part}</span>
+          <button
+            className={`drive-path-button${index === visibleParts.length - 1 ? ' drive-path-current' : ' drive-path-parent'}`}
+            type="button"
+            onClick={() => onNavigate(parts.slice(0, visibleStartIndex + index + 1).join('/'))}
+          >
+            {part}
+          </button>
           {index < visibleParts.length - 1 ? <span className="drive-path-separator">/</span> : null}
         </span>
       ))}
@@ -223,6 +283,10 @@ function resolveOpenFileUrl(entry: LazycatDriveEntry): string {
     return `clientfs:${entry.path}`;
   }
 
+  if (entry.source === 'external' || entry.source === 'mount') {
+    return `drive:${entry.source}:${encodeURIComponent(entry.path)}`;
+  }
+
   if (entry.source !== 'shared') {
     return entry.path;
   }
@@ -233,16 +297,7 @@ function resolveOpenFileUrl(entry: LazycatDriveEntry): string {
 }
 
 function DriveIcon({ entry }: { entry: LazycatDriveEntry }) {
-  const icon = entry.type === 'directory' ? folderIcon : getFileIconSrc(entry.fileType);
-  return <SvgIcon svg={icon} className="drive-icon" />;
-}
-
-function getFileIconSrc(fileType: string): string {
-  if (fileType === 'doc' || fileType === 'docx' || fileType === 'odt' || fileType === 'txt') return wordIcon;
-  if (fileType === 'xls' || fileType === 'xlsx' || fileType === 'ods' || fileType === 'csv') return excelIcon;
-  if (fileType === 'ppt' || fileType === 'pptx' || fileType === 'odp') return pptIcon;
-  if (fileType === 'pdf') return pdfIcon;
-  return wordIcon;
+  return <Icon name={entry.type === 'directory' ? 'folder' : getFileIconName(entry.fileType)} className="drive-icon" />;
 }
 
 function getScopeLabel(scope: LazycatDriveScope): string {

@@ -370,12 +370,127 @@ async function releaseActiveSession(id) {
 
 // server/services/editor-session.ts
 import fs3 from "node:fs/promises";
-import path4 from "node:path";
+import path5 from "node:path";
 
 // server/services/file-url.ts
+import path3 from "node:path";
+
+// server/services/drive-file-service.ts
 import path2 from "node:path";
+var FILE_SERVICE_ROOT_BY_SCOPE = {
+  external: "/.media",
+  mount: "/.remotefs"
+};
+var EXTERNAL_REMOTE_FS_ALIAS = "RemoteFS";
+function normalizeFileServiceRelativePath(input, rootPath) {
+  const raw = input.replace(/\0/g, "").replace(/\\/g, "/");
+  const withoutRoot = raw === rootPath ? "" : raw.startsWith(`${rootPath}/`) ? raw.slice(rootPath.length + 1) : raw;
+  const normalized = normalizeDrivePath(withoutRoot);
+  if (normalized === ".." || normalized.startsWith("../")) {
+    throw new HttpError(400, "unsafe_drive_path", "Drive path escapes the selected Lazycat drive scope.");
+  }
+  return normalized;
+}
+function toFileServiceAbsolutePath(relativePath, rootPath) {
+  const absolutePath = relativePath ? joinDrivePath(rootPath, relativePath) : rootPath;
+  const normalized = path2.posix.normalize(absolutePath);
+  if (normalized !== rootPath && !normalized.startsWith(`${rootPath}/`)) {
+    throw new HttpError(400, "unsafe_drive_path", "Drive path escapes the selected Lazycat drive scope.");
+  }
+  return normalized;
+}
+function resolveFileServiceTargetPath(scope, requestedPath) {
+  const rootPath = FILE_SERVICE_ROOT_BY_SCOPE[scope];
+  const relativePath = requestedPath ? normalizeFileServiceRelativePath(requestedPath, rootPath) : "";
+  if (scope === "external" && isExternalRemoteFsPath(relativePath)) {
+    const serviceRelativePath = stripExternalRemoteFsAlias(relativePath);
+    const remoteFsRootPath = FILE_SERVICE_ROOT_BY_SCOPE.mount;
+    return {
+      rootPath: remoteFsRootPath,
+      relativePath,
+      serviceRelativePath,
+      absolutePath: toFileServiceAbsolutePath(serviceRelativePath, remoteFsRootPath)
+    };
+  }
+  return {
+    rootPath,
+    relativePath,
+    serviceRelativePath: relativePath,
+    absolutePath: toFileServiceAbsolutePath(relativePath, rootPath)
+  };
+}
+function toExternalRemoteFsClientPath(serviceRelativePath) {
+  return serviceRelativePath ? `${EXTERNAL_REMOTE_FS_ALIAS}/${serviceRelativePath}` : EXTERNAL_REMOTE_FS_ALIAS;
+}
+function getFileServiceParentPath(input) {
+  if (!input) {
+    return "";
+  }
+  const parent = path2.posix.dirname(input);
+  return parent === "." ? "" : parent;
+}
+function getFileServiceOrigin(request, config2) {
+  const fallback = new URL(config2.appOrigin);
+  const host = firstHeader(request.headers["x-forwarded-host"]) || request.headers.host || fallback.host;
+  const protocol = firstHeader(request.headers["x-forwarded-proto"]) || fallback.protocol.replace(/:$/, "") || "https";
+  const boxDomain = getBoxDomain(host);
+  return `${protocol}://file.${boxDomain}`;
+}
+async function fetchFileServicePath(origin, targetPath, ownerUid, options = {}) {
+  const apiUrl = `${origin}/api/webdav/file?path=${encodeURIComponent(targetPath)}${ownerUid ? `&owner=${encodeURIComponent(ownerUid)}` : ""}`;
+  return fetch(apiUrl, {
+    method: options.method || "GET",
+    headers: options.headers,
+    body: options.body
+  });
+}
+function parseDriveFileUrl(fileUrl) {
+  const match = /^drive:(external|mount):(.*)$/.exec(fileUrl);
+  if (!match) {
+    return null;
+  }
+  const scope = match[1];
+  const rootPath = FILE_SERVICE_ROOT_BY_SCOPE[scope];
+  const decodedPath = decodeURIComponent(match[2] || "");
+  return {
+    scope,
+    relativePath: normalizeFileServiceRelativePath(decodedPath, rootPath)
+  };
+}
+function normalizeDrivePath(input) {
+  return path2.posix.normalize(`/${input.replace(/\\/g, "/")}`).replace(/^\/+/, "").replace(/^\.$/, "");
+}
+function joinDrivePath(parentPath, name) {
+  return parentPath ? `${parentPath}/${name}` : name;
+}
+function isExternalRemoteFsPath(relativePath) {
+  return relativePath === EXTERNAL_REMOTE_FS_ALIAS || relativePath.startsWith(`${EXTERNAL_REMOTE_FS_ALIAS}/`);
+}
+function stripExternalRemoteFsAlias(relativePath) {
+  if (relativePath === EXTERNAL_REMOTE_FS_ALIAS) {
+    return "";
+  }
+  return relativePath.slice(EXTERNAL_REMOTE_FS_ALIAS.length + 1);
+}
+function firstHeader(value) {
+  return Array.isArray(value) ? value[0] : value;
+}
+function getBoxDomain(host) {
+  const hostname = host.split(":")[0] || host;
+  const parts = hostname.split(".").filter(Boolean);
+  if (parts.length <= 2) {
+    return hostname;
+  }
+  return parts.slice(1).join(".");
+}
+
+// server/services/file-url.ts
 var FILE_PREFIX = "/_lzc/files/home/";
 function normalizeLazycatFileUrl(fileUrl) {
+  const driveFile = parseDriveFileUrl(fileUrl);
+  if (driveFile) {
+    return normalizeDriveFileServicePath(fileUrl, driveFile.scope, driveFile.relativePath);
+  }
   if (fileUrl.startsWith("clientfs:")) {
     return normalizeClientfsRelativePath(fileUrl.slice("clientfs:".length));
   }
@@ -402,8 +517,8 @@ function normalizeLazycatFileUrl(fileUrl) {
   }
   const rawRelativePath = decodeURIComponent(parsed.pathname.slice(FILE_PREFIX.length));
   const relativePath = normalizeRelativePath(rawRelativePath);
-  const title = path2.posix.basename(relativePath) || "document";
-  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  const title = path3.posix.basename(relativePath) || "document";
+  const fileType = path3.posix.extname(title).replace(/^\./, "").toLowerCase();
   if (!fileType) {
     throw new HttpError(415, "unsupported_file_type", "File URL does not contain a file extension.");
   }
@@ -417,9 +532,26 @@ function normalizeLazycatFileUrl(fileUrl) {
     storageType: "lazycat-file"
   };
 }
+function normalizeDriveFileServicePath(originalUrl, driveScope, relativePath) {
+  const title = path3.posix.basename(relativePath) || "document";
+  const fileType = path3.posix.extname(title).replace(/^\./, "").toLowerCase();
+  if (!fileType) {
+    throw new HttpError(415, "unsupported_file_type", "Drive file path does not contain a file extension.");
+  }
+  return {
+    originalUrl,
+    fileOrigin: "",
+    relativePath,
+    ownerUid: "",
+    title,
+    fileType,
+    storageType: "drive-file-service",
+    driveScope
+  };
+}
 function normalizeRemoteDocumentUrl(parsed, originalUrl) {
   const title = resolveRemoteDocumentTitle(parsed);
-  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  const fileType = path3.posix.extname(title).replace(/^\./, "").toLowerCase();
   if (!fileType) {
     throw new HttpError(415, "unsupported_file_type", "Remote URL does not contain a file extension.");
   }
@@ -435,8 +567,8 @@ function normalizeRemoteDocumentUrl(parsed, originalUrl) {
 }
 function normalizeClientfsRelativePath(filePath) {
   const relativePath = normalizeRelativePath(filePath.replace(/\\/g, "/").replace(/^\/+/, ""));
-  const title = path2.posix.basename(relativePath) || "document";
-  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  const title = path3.posix.basename(relativePath) || "document";
+  const fileType = path3.posix.extname(title).replace(/^\./, "").toLowerCase();
   if (!fileType) {
     throw new HttpError(415, "unsupported_file_type", "Client file path does not contain a file extension.");
   }
@@ -452,8 +584,8 @@ function normalizeClientfsRelativePath(filePath) {
 }
 function normalizeLazycatRelativePath(filePath) {
   const relativePath = normalizeRelativePath(filePath.replace(/\\/g, "/").replace(/^\/+/, "").replace(/^home\//, ""));
-  const title = path2.posix.basename(relativePath) || "document";
-  const fileType = path2.posix.extname(title).replace(/^\./, "").toLowerCase();
+  const title = path3.posix.basename(relativePath) || "document";
+  const fileType = path3.posix.extname(title).replace(/^\./, "").toLowerCase();
   if (!fileType) {
     throw new HttpError(415, "unsupported_file_type", "File path does not contain a file extension.");
   }
@@ -471,13 +603,13 @@ function isRemoteDocumentUrl(parsed) {
   return (parsed.protocol === "http:" || parsed.protocol === "https:") && !parsed.hostname.startsWith("file.");
 }
 function resolveRemoteDocumentTitle(parsed) {
-  const rawName = decodeURIComponent(path2.posix.basename(parsed.pathname));
+  const rawName = decodeURIComponent(path3.posix.basename(parsed.pathname));
   const nameFromPath = sanitizeTitle(rawName);
-  if (path2.posix.extname(nameFromPath)) {
+  if (path3.posix.extname(nameFromPath)) {
     return nameFromPath;
   }
   const nameFromQuery = sanitizeTitle(parsed.searchParams.get("filename") || parsed.searchParams.get("name") || "");
-  if (path2.posix.extname(nameFromQuery)) {
+  if (path3.posix.extname(nameFromQuery)) {
     return nameFromQuery;
   }
   return nameFromPath || nameFromQuery || "document";
@@ -488,7 +620,7 @@ function sanitizeTitle(input) {
 }
 function normalizeRelativePath(input) {
   const withoutNull = input.replace(/\0/g, "");
-  const normalized = path2.posix.normalize(`/${withoutNull}`).replace(/^\/+/, "");
+  const normalized = path3.posix.normalize(`/${withoutNull}`).replace(/^\/+/, "");
   if (!normalized || normalized === ".") {
     throw new HttpError(400, "empty_relative_path", "File URL does not contain a file path.");
   }
@@ -521,18 +653,18 @@ function createDocumentKey(input) {
 
 // server/services/file-store.ts
 import fs2 from "node:fs";
-import path3 from "node:path";
+import path4 from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 function resolveClientfsFilePath(relativePath, config2, ownerUid) {
   const normalizedOwnerUid = normalizeOwnerUid(ownerUid);
-  const scopedPath = normalizedOwnerUid ? path3.join(normalizedOwnerUid, relativePath) : relativePath;
+  const scopedPath = normalizedOwnerUid ? path4.join(normalizedOwnerUid, relativePath) : relativePath;
   return resolvePathInRoot(config2.clientfsRoot, scopedPath, "Resolved clientfs path escapes clientfs root.");
 }
 function resolveHomeFilePath(relativePath, config2, ownerUid) {
-  const root = path3.resolve(config2.homeRoot);
+  const root = path4.resolve(config2.homeRoot);
   const normalizedOwnerUid = normalizeOwnerUid(ownerUid);
-  const scopedPath = normalizedOwnerUid ? path3.join(normalizedOwnerUid, relativePath) : relativePath;
+  const scopedPath = normalizedOwnerUid ? path4.join(normalizedOwnerUid, relativePath) : relativePath;
   return resolvePathInRoot(root, scopedPath, "Resolved file path escapes home root.");
 }
 function createReadStreamForRelativePath(relativePath, config2, range, ownerUid, root = "home") {
@@ -548,7 +680,7 @@ async function saveFromUrl(url, relativePath, config2, ownerUid, root = "home") 
   if (!response.ok || !response.body) {
     throw new HttpError(502, "callback_download_failed", `Failed to download saved document: ${response.status}`);
   }
-  await fs2.promises.mkdir(path3.dirname(target), { recursive: true });
+  await fs2.promises.mkdir(path4.dirname(target), { recursive: true });
   if (root === "clientfs") {
     const body = Buffer.from(await response.arrayBuffer());
     await writeClientfsFile(target, body);
@@ -588,9 +720,9 @@ function normalizeOwnerUid(ownerUid) {
   return normalized;
 }
 function resolvePathInRoot(rootPath, relativePath, errorMessage) {
-  const root = path3.resolve(rootPath);
-  const target = path3.resolve(root, relativePath);
-  if (target !== root && !target.startsWith(`${root}${path3.sep}`)) {
+  const root = path4.resolve(rootPath);
+  const target = path4.resolve(root, relativePath);
+  if (target !== root && !target.startsWith(`${root}${path4.sep}`)) {
     throw new HttpError(400, "unsafe_file_path", errorMessage);
   }
   return target;
@@ -692,7 +824,8 @@ async function createEditorSessionWithCookie(request, config2, options) {
   const now = (/* @__PURE__ */ new Date()).toISOString();
   const id = createSessionId();
   const ownerUid = options.user.id;
-  const documentIdentity = normalized.storageType === "remote-url" ? `remote-url:${normalized.originalUrl}` : await resolveDocumentIdentity(normalized.relativePath, ownerUid, config2, normalized.storageType === "clientfs" ? "clientfs" : "home");
+  const normalizedSession = normalized.storageType === "clientfs" ? { ...normalized, relativePath: stripClientfsOwnerPrefix(normalized.relativePath, ownerUid), originalUrl: `clientfs:${stripClientfsOwnerPrefix(normalized.relativePath, ownerUid)}` } : normalized;
+  const documentIdentity = normalizedSession.storageType === "remote-url" ? `remote-url:${normalizedSession.originalUrl}` : normalizedSession.storageType === "drive-file-service" ? `drive-file-service:${normalizedSession.driveScope || "unknown"}:${ownerUid}:${normalizedSession.relativePath}` : await resolveDocumentIdentity(normalizedSession.relativePath, ownerUid, config2, normalizedSession.storageType === "clientfs" ? "clientfs" : "home");
   const requestedMode = request.mode === "view" ? "view" : "edit";
   const activeSession = requestedMode === "edit" ? await findActiveEditSession(documentIdentity, options.user.id) : void 0;
   if (activeSession && !request.takeover) {
@@ -716,7 +849,7 @@ async function createEditorSessionWithCookie(request, config2, options) {
   }
   const documentKey = createDocumentKey(`${documentIdentity}:${id}`);
   const session = {
-    ...normalized,
+    ...normalizedSession,
     ownerUid,
     id,
     documentType,
@@ -736,6 +869,12 @@ async function createEditorSessionWithCookie(request, config2, options) {
     session,
     config: buildOnlyOfficeConfig(session, config2)
   };
+}
+function stripClientfsOwnerPrefix(relativePath, ownerUid) {
+  if (!relativePath || !ownerUid) {
+    return relativePath;
+  }
+  return relativePath === ownerUid ? "" : relativePath.startsWith(`${ownerUid}/`) ? relativePath.slice(ownerUid.length + 1) : relativePath;
 }
 async function resolveDocumentIdentity(relativePath, ownerUid, config2, root) {
   try {
@@ -765,8 +904,8 @@ async function resolveDocumentIdentity(relativePath, ownerUid, config2, root) {
   return `${root}:path:${relativePath}`;
 }
 function resolveDocumentPathIdentity(realPath, targetPath, config2) {
-  const root = path4.resolve(config2.homeRoot);
-  const candidates = [path4.resolve(realPath), path4.resolve(targetPath)];
+  const root = path5.resolve(config2.homeRoot);
+  const candidates = [path5.resolve(realPath), path5.resolve(targetPath)];
   for (const candidate of candidates) {
     const logicalDocumentPath = toLogicalDocumentPath(candidate);
     if (logicalDocumentPath && !logicalDocumentPath.includes("/.shared-center/")) {
@@ -775,7 +914,7 @@ function resolveDocumentPathIdentity(realPath, targetPath, config2) {
     if (!isPathInside(candidate, root)) {
       continue;
     }
-    const relative = path4.relative(root, candidate).replace(/\\/g, "/");
+    const relative = path5.relative(root, candidate).replace(/\\/g, "/");
     if (relative && !relative.startsWith("..") && !relative.includes("/.shared-center/") && !relative.startsWith(".shared-center/")) {
       return `document-path:/document/${relative}`;
     }
@@ -784,13 +923,13 @@ function resolveDocumentPathIdentity(realPath, targetPath, config2) {
 }
 async function resolveMountedDocumentIdentity(realPath, targetPath) {
   const entries = await readMountInfo();
-  const candidates = [path4.resolve(realPath), path4.resolve(targetPath)];
+  const candidates = [path5.resolve(realPath), path5.resolve(targetPath)];
   for (const candidate of candidates) {
     const entry = findBestMountInfoEntry(candidate, entries);
     if (!entry) {
       continue;
     }
-    const suffix = path4.relative(entry.mountPoint, candidate);
+    const suffix = path5.relative(entry.mountPoint, candidate);
     const sourcePath = normalizeMountSourcePath(entry.root, suffix);
     if (sourcePath) {
       const logicalDocumentPath = toLogicalDocumentPath(sourcePath);
@@ -842,11 +981,11 @@ function findBestMountInfoEntry(candidate, entries) {
 }
 function normalizeMountSourcePath(root, suffix) {
   const normalizedSuffix = suffix && suffix !== "." ? suffix : "";
-  const sourcePath = path4.posix.normalize(`/${root}/${normalizedSuffix}`.replace(/\\/g, "/"));
+  const sourcePath = path5.posix.normalize(`/${root}/${normalizedSuffix}`.replace(/\\/g, "/"));
   return sourcePath === "/" ? "" : sourcePath;
 }
 function toLogicalDocumentPath(input) {
-  const normalized = path4.posix.normalize(input.replace(/\\/g, "/"));
+  const normalized = path5.posix.normalize(input.replace(/\\/g, "/"));
   const marker = "/document/";
   const index = normalized.indexOf(marker);
   if (index < 0) {
@@ -855,7 +994,7 @@ function toLogicalDocumentPath(input) {
   return normalized.slice(index);
 }
 function isPathInside(candidate, parent) {
-  return candidate === parent || candidate.startsWith(`${parent}${path4.sep}`);
+  return candidate === parent || candidate.startsWith(`${parent}${path5.sep}`);
 }
 function decodeMountInfoPath(input) {
   return input.replace(/\\([0-7]{3})/g, (_match, value) => String.fromCharCode(parseInt(value, 8)));
@@ -1050,6 +1189,9 @@ async function handleDownload(sessionId, request, response, config2, headOnly = 
   if (session.storageType === "remote-url") {
     return proxyOriginalFileDownload(session, request, response, headOnly);
   }
+  if (session.storageType === "drive-file-service") {
+    return proxyDriveFileServiceDownload(session, request, response, config2, headOnly);
+  }
   if (session.storageType === "lazycat-file" || session.fileOrigin) {
     return proxyOriginalFileDownload(session, request, response, headOnly);
   }
@@ -1189,6 +1331,18 @@ async function handleCallback(sessionId, request, response, config2) {
       });
       return sendJson(response, 200, { error: 0 });
     }
+    if (session.storageType === "drive-file-service") {
+      await saveDriveFileServiceDocumentFromUrl(payload.url, session, request, config2);
+      console.log("[callback] saved drive file service document", {
+        sessionId,
+        status,
+        title: session.title,
+        relativePath: session.relativePath,
+        ownerUid: session.ownerUid,
+        driveScope: session.driveScope
+      });
+      return sendJson(response, 200, { error: 0 });
+    }
     try {
       await saveFromUrl(
         payload.url,
@@ -1216,6 +1370,84 @@ async function handleCallback(sessionId, request, response, config2) {
     });
   }
   sendJson(response, 200, { error: 0 });
+}
+async function proxyDriveFileServiceDownload(session, request, response, config2, headOnly) {
+  if (!session.driveScope) {
+    throw new HttpError(400, "missing_drive_scope", "Drive file session is missing scope.");
+  }
+  const target = resolveFileServiceTargetPath(session.driveScope, session.relativePath);
+  const origin = getFileServiceOrigin(request, config2);
+  const upstream = await fetchFileServicePath(origin, target.absolutePath, session.ownerUid, {
+    method: headOnly ? "HEAD" : "GET",
+    headers: {
+      ...request.headers.range ? { range: request.headers.range } : {}
+    }
+  });
+  if (!upstream.ok && upstream.status !== 206) {
+    throw new HttpError(upstream.status, "drive_file_download_failed", `Failed to fetch drive file: ${upstream.status}`);
+  }
+  assertDriveFileResponseIsDocument(upstream, session.fileType);
+  console.log("[download] drive file service proxy request", {
+    sessionId: session.id,
+    title: session.title,
+    relativePath: session.relativePath,
+    targetPath: target.absolutePath,
+    status: upstream.status,
+    headOnly
+  });
+  const filename = encodeURIComponent(session.title);
+  const headers = {
+    "content-type": upstream.headers.get("content-type") || contentTypeFor(session.fileType),
+    "content-disposition": `attachment; filename*=UTF-8''${filename}`,
+    "accept-ranges": upstream.headers.get("accept-ranges") || "bytes",
+    "cache-control": "no-store"
+  };
+  const contentLength = upstream.headers.get("content-length");
+  const contentRange = upstream.headers.get("content-range");
+  if (contentLength) headers["content-length"] = contentLength;
+  if (contentRange) headers["content-range"] = contentRange;
+  response.writeHead(upstream.status, headers);
+  if (headOnly) {
+    response.end();
+    return;
+  }
+  if (!upstream.body) {
+    throw new HttpError(502, "empty_drive_file_download", "Drive file response body is empty.");
+  }
+  await pipeline2(upstream.body, response);
+}
+async function saveDriveFileServiceDocumentFromUrl(sourceUrl, session, request, config2) {
+  if (!session.driveScope) {
+    throw new HttpError(400, "missing_drive_scope", "Drive file session is missing scope.");
+  }
+  const download = await fetch(sourceUrl);
+  if (!download.ok) {
+    throw new HttpError(502, "callback_download_failed", `Failed to download saved document: ${download.status}`);
+  }
+  const target = resolveFileServiceTargetPath(session.driveScope, session.relativePath);
+  const body = Buffer.from(await download.arrayBuffer());
+  const upload = await fetchFileServicePath(getFileServiceOrigin(request, config2), target.absolutePath, session.ownerUid, {
+    method: "PUT",
+    headers: {
+      "content-type": download.headers.get("content-type") || contentTypeFor(session.fileType),
+      "content-length": String(body.byteLength)
+    },
+    body
+  });
+  if (!upload.ok) {
+    throw new HttpError(upload.status, "drive_file_writeback_failed", `Drive file writeback failed: ${upload.status}`);
+  }
+}
+function assertDriveFileResponseIsDocument(response, fileType) {
+  const contentType2 = response.headers.get("content-type") || "";
+  if (!/text\/html/i.test(contentType2)) {
+    return;
+  }
+  throw new HttpError(
+    502,
+    "drive_file_auth_required",
+    `Drive file service returned HTML while downloading .${fileType}; authentication may be required.`
+  );
 }
 async function saveRemoteDocumentFromUrl(sourceUrl, targetUrl, fileType) {
   const download = await fetch(sourceUrl);
@@ -1262,15 +1494,15 @@ function contentTypeFor(fileType) {
 
 // server/routes/fonts.ts
 import fs4 from "node:fs/promises";
-import path5 from "node:path";
+import path6 from "node:path";
 var MAX_FONT_UPLOAD_BYTES = 80 * 1024 * 1024;
 var FONT_EXTENSIONS = /* @__PURE__ */ new Set([".ttf", ".otf", ".ttc"]);
 async function handleFontList(_request, response, config2) {
   await ensureFontDirs(config2);
   const entries = await fs4.readdir(config2.fontsDir, { withFileTypes: true });
   const items = await Promise.all(
-    entries.filter((entry) => entry.isFile() && FONT_EXTENSIONS.has(path5.extname(entry.name).toLowerCase())).map(async (entry) => {
-      const stats = await fs4.stat(path5.join(config2.fontsDir, entry.name));
+    entries.filter((entry) => entry.isFile() && FONT_EXTENSIONS.has(path6.extname(entry.name).toLowerCase())).map(async (entry) => {
+      const stats = await fs4.stat(path6.join(config2.fontsDir, entry.name));
       return {
         name: entry.name,
         size: stats.size,
@@ -1295,7 +1527,7 @@ async function handleFontUpload(request, response, config2) {
   const file = parseMultipartFile(body, boundary);
   const originalName = sanitizeFontFileName(file.filename);
   validateFontFile(originalName, file.content);
-  const targetPath = path5.join(config2.fontsDir, originalName);
+  const targetPath = path6.join(config2.fontsDir, originalName);
   await fs4.writeFile(targetPath, file.content, { mode: 420 });
   const stats = await fs4.stat(targetPath);
   sendJson(response, 201, {
@@ -1309,13 +1541,13 @@ async function handleFontUpload(request, response, config2) {
 async function handleFontRefresh(_request, response, config2) {
   await ensureFontDirs(config2);
   const refreshRequestedAt = (/* @__PURE__ */ new Date()).toISOString();
-  await fs4.writeFile(path5.join(config2.fontRefreshDir, "request"), refreshRequestedAt);
+  await fs4.writeFile(path6.join(config2.fontRefreshDir, "request"), refreshRequestedAt);
   sendJson(response, 200, { ok: true, refreshRequestedAt });
 }
 async function handleFontDelete(fontName, _request, response, config2) {
   await ensureFontDirs(config2);
   const safeName = sanitizeFontFileName(fontName);
-  const targetPath = path5.join(config2.fontsDir, safeName);
+  const targetPath = path6.join(config2.fontsDir, safeName);
   await fs4.rm(targetPath, { force: true });
   sendJson(response, 200, { ok: true });
 }
@@ -1325,14 +1557,14 @@ async function ensureFontDirs(config2) {
 }
 async function readLastRefreshAt(config2) {
   try {
-    return (await fs4.readFile(path5.join(config2.fontRefreshDir, "last-success"), "utf8")).trim() || null;
+    return (await fs4.readFile(path6.join(config2.fontRefreshDir, "last-success"), "utf8")).trim() || null;
   } catch {
     return null;
   }
 }
 async function readFontRefreshLogs(config2) {
   try {
-    const raw = await fs4.readFile(path5.join(config2.fontRefreshDir, "fonts.log"), "utf8");
+    const raw = await fs4.readFile(path6.join(config2.fontRefreshDir, "fonts.log"), "utf8");
     return raw.trim().split("\n").slice(-80);
   } catch {
     return [];
@@ -1398,11 +1630,11 @@ function parseContentDispositionFilename(headers) {
   return (match?.[1] || match?.[2] || "").trim() || null;
 }
 function sanitizeFontFileName(input) {
-  const baseName = path5.basename(input).trim().replace(/[\\/:*?"<>|\0]/g, "_");
+  const baseName = path6.basename(input).trim().replace(/[\\/:*?"<>|\0]/g, "_");
   if (!baseName || baseName === "." || baseName === "..") {
     throw new HttpError(400, "invalid_font_name", "\u5B57\u4F53\u6587\u4EF6\u540D\u65E0\u6548\u3002");
   }
-  if (!FONT_EXTENSIONS.has(path5.extname(baseName).toLowerCase())) {
+  if (!FONT_EXTENSIONS.has(path6.extname(baseName).toLowerCase())) {
     throw new HttpError(400, "unsupported_font_type", "\u4EC5\u652F\u6301 .ttf\u3001.otf\u3001.ttc \u5B57\u4F53\u6587\u4EF6\u3002");
   }
   return baseName;
@@ -1411,7 +1643,7 @@ function validateFontFile(filename, content) {
   if (!content.length) {
     throw new HttpError(400, "empty_font_file", "\u5B57\u4F53\u6587\u4EF6\u4E0D\u80FD\u4E3A\u7A7A\u3002");
   }
-  const extension = path5.extname(filename).toLowerCase();
+  const extension = path6.extname(filename).toLowerCase();
   const signature = content.subarray(0, 4).toString("latin1");
   const isTrueType = content.length >= 4 && content[0] === 0 && content[1] === 1 && content[2] === 0 && content[3] === 0;
   const isOpenType = signature === "OTTO";
@@ -1427,22 +1659,18 @@ function validateFontFile(filename, content) {
 
 // server/routes/drive.ts
 import fs5 from "node:fs/promises";
-import path6 from "node:path";
+import path7 from "node:path";
 var SUPPORTED_EXTENSIONS = /* @__PURE__ */ new Set(["doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "csv", "odt", "ods", "odp"]);
 var SHARED_CENTER_PATH = ".shared-center";
-var FILE_SERVICE_ROOT_BY_SCOPE = {
-  external: "/.media",
-  mount: "/.remotefs"
-};
 async function handleDriveList(request, response, config2, requestedPath = "", rawScope = "all") {
   const scope = normalizeScope(rawScope);
   if (scope === "all" || scope === "shared" || scope === "client") {
     return handleLocalDriveList(response, config2, requestedPath, scope, resolveDriveOwnerUid(request, config2));
   }
-  return handleFileServiceDriveList(request, response, config2, requestedPath, scope);
+  return handleFileServiceDriveList(request, response, config2, requestedPath, scope, resolveDriveOwnerUid(request, config2));
 }
 async function handleLocalDriveList(response, config2, requestedPath, scope, ownerUid) {
-  const relativePath = resolveLocalDrivePath(requestedPath, scope);
+  const relativePath = resolveLocalDrivePath(requestedPath, scope, ownerUid);
   const targetPath = scope === "client" ? resolveClientfsFilePath(relativePath, config2, ownerUid) : resolveHomeFilePath(relativePath, config2, ownerUid);
   const dirents = await fs5.readdir(targetPath, { withFileTypes: true });
   const entries = await Promise.all(dirents.map((dirent) => toLocalDriveEntry(dirent, relativePath, targetPath, scope)));
@@ -1455,11 +1683,14 @@ async function handleLocalDriveList(response, config2, requestedPath, scope, own
   });
 }
 function resolveDriveOwnerUid(request, config2) {
-  const headerUserId = firstHeader(request.headers["x-hc-user-id"])?.trim() || "";
+  const headerUserId = firstHeader2(request.headers["x-hc-user-id"])?.trim() || "";
   return headerUserId || config2.deployUid || "";
 }
-function resolveLocalDrivePath(requestedPath, scope) {
-  const normalizedPath = requestedPath ? normalizeDrivePath(requestedPath) : "";
+function resolveLocalDrivePath(requestedPath, scope, ownerUid = "") {
+  const normalizedPath = requestedPath ? normalizeDrivePath2(requestedPath) : "";
+  if (scope === "client") {
+    return stripClientfsOwnerPrefix2(normalizedPath, ownerUid);
+  }
   if (scope !== "shared") {
     return normalizedPath;
   }
@@ -1469,7 +1700,13 @@ function resolveLocalDrivePath(requestedPath, scope) {
   if (normalizedPath === SHARED_CENTER_PATH || normalizedPath.startsWith(`${SHARED_CENTER_PATH}/`)) {
     return normalizedPath;
   }
-  return joinDrivePath(SHARED_CENTER_PATH, normalizedPath);
+  return joinDrivePath2(SHARED_CENTER_PATH, normalizedPath);
+}
+function stripClientfsOwnerPrefix2(relativePath, ownerUid) {
+  if (!relativePath || !ownerUid) {
+    return relativePath;
+  }
+  return relativePath === ownerUid ? "" : relativePath.startsWith(`${ownerUid}/`) ? relativePath.slice(ownerUid.length + 1) : relativePath;
 }
 function toClientLocalDrivePath(relativePath, scope) {
   if (scope !== "shared") {
@@ -1483,27 +1720,26 @@ function toClientLocalDrivePath(relativePath, scope) {
   }
   return relativePath;
 }
-async function handleFileServiceDriveList(request, response, config2, requestedPath, scope) {
-  const rootPath = FILE_SERVICE_ROOT_BY_SCOPE[scope];
-  const fileServicePath = requestedPath ? normalizeFileServicePath(requestedPath, rootPath) : rootPath;
+async function handleFileServiceDriveList(request, response, config2, requestedPath, scope, ownerUid) {
+  const target = resolveFileServiceTargetPath(scope, requestedPath);
   const fileServiceOrigin = getFileServiceOrigin(request, config2);
-  const payload = await fetchFileServiceDirectory(fileServiceOrigin, fileServicePath, request.headers.cookie);
-  const entries = (payload.data || []).map((entry) => toFileServiceDriveEntry(entry, scope)).filter((entry) => Boolean(entry)).sort(compareEntries);
+  const payload = await fetchFileServiceDirectory(fileServiceOrigin, target.absolutePath, ownerUid, request.headers.cookie);
+  const entries = (payload.data || []).map((entry) => toFileServiceDriveEntry(entry, scope, target)).filter((entry) => Boolean(entry)).sort(compareEntries);
   console.log("[drive] file service list", {
     scope,
-    path: fileServicePath,
+    path: target.absolutePath,
     origin: fileServiceOrigin,
     count: entries.length,
     total: payload.total ?? entries.length
   });
   sendJson(response, 200, {
     scope,
-    path: fileServicePath,
-    parentPath: getFileServiceParentPath(fileServicePath, rootPath),
+    path: target.relativePath,
+    parentPath: getFileServiceParentPath(target.relativePath),
     entries
   });
 }
-async function fetchFileServiceDirectory(origin, targetPath, cookie) {
+async function fetchFileServiceDirectory(origin, targetPath, ownerUid, cookie) {
   const apiUrl = `${origin}/api/webdav/getDirectoryContents`;
   const result = await fetch(apiUrl, {
     method: "POST",
@@ -1520,7 +1756,7 @@ async function fetchFileServiceDirectory(origin, targetPath, cookie) {
       type: "",
       mimeType: "",
       includeHidden: false,
-      owner: "",
+      owner: ownerUid,
       extname: "",
       ignoreName: ""
     })
@@ -1542,12 +1778,12 @@ function normalizeScope(input) {
   return "all";
 }
 async function toLocalDriveEntry(dirent, currentPath, targetPath, scope) {
-  const entryPath = joinDrivePath(currentPath, dirent.name);
-  const stats = await fs5.stat(path6.join(targetPath, dirent.name)).catch(() => null);
+  const entryPath = joinDrivePath2(currentPath, dirent.name);
+  const stats = await fs5.stat(path7.join(targetPath, dirent.name)).catch(() => null);
   if (!stats || !stats.isDirectory() && !stats.isFile()) {
     return null;
   }
-  const fileType = stats.isFile() ? path6.posix.extname(dirent.name).replace(/^\./, "").toLowerCase() : "";
+  const fileType = stats.isFile() ? path7.posix.extname(dirent.name).replace(/^\./, "").toLowerCase() : "";
   return {
     name: dirent.name,
     path: entryPath,
@@ -1559,14 +1795,15 @@ async function toLocalDriveEntry(dirent, currentPath, targetPath, scope) {
     source: scope
   };
 }
-function toFileServiceDriveEntry(entry, scope) {
+function toFileServiceDriveEntry(entry, scope, target) {
   const type = entry.type === "directory" ? "directory" : entry.type === "file" ? "file" : null;
-  const entryPath = normalizeReturnedFileServicePath(entry.filename || "", FILE_SERVICE_ROOT_BY_SCOPE[scope]);
-  const name = entry.basename || path6.posix.basename(entryPath);
+  const serviceEntryPath = normalizeReturnedFileServicePath(entry.filename || "", target.rootPath);
+  const entryPath = target.rootPath === FILE_SERVICE_ROOT_BY_SCOPE.mount && scope === "external" ? toExternalRemoteFsClientPath(serviceEntryPath) : serviceEntryPath;
+  const name = entry.basename || path7.posix.basename(serviceEntryPath);
   if (!type || !entryPath || !name) {
     return null;
   }
-  const fileType = type === "file" ? path6.posix.extname(name).replace(/^\./, "").toLowerCase() : "";
+  const fileType = type === "file" ? path7.posix.extname(name).replace(/^\./, "").toLowerCase() : "";
   return {
     name,
     path: entryPath,
@@ -1581,40 +1818,24 @@ function toFileServiceDriveEntry(entry, scope) {
     mountPointPath: entry.mountPointPath || void 0
   };
 }
-function normalizeDrivePath(input) {
-  return path6.posix.normalize(`/${input.replace(/\\/g, "/")}`).replace(/^\/+/, "").replace(/^\.$/, "");
-}
-function normalizeFileServicePath(input, rootPath) {
-  const raw = input.replace(/\0/g, "").replace(/\\/g, "/");
-  const absolutePath = raw.startsWith("/") ? raw : joinDrivePath(rootPath, raw);
-  const normalized = path6.posix.normalize(absolutePath);
-  if (normalized !== rootPath && !normalized.startsWith(`${rootPath}/`)) {
-    throw new HttpError(400, "unsafe_drive_path", "Drive path escapes the selected Lazycat drive scope.");
-  }
-  return normalized;
+function normalizeDrivePath2(input) {
+  return path7.posix.normalize(`/${input.replace(/\\/g, "/")}`).replace(/^\/+/, "").replace(/^\.$/, "");
 }
 function normalizeReturnedFileServicePath(input, rootPath) {
   if (!input) {
     return "";
   }
-  return normalizeFileServicePath(input, rootPath);
+  return normalizeFileServiceRelativePath(input, rootPath);
 }
-function joinDrivePath(parentPath, name) {
+function joinDrivePath2(parentPath, name) {
   return parentPath ? `${parentPath}/${name}` : name;
 }
 function getLocalParentPath(input) {
   if (!input) {
     return "";
   }
-  const parent = path6.posix.dirname(input);
+  const parent = path7.posix.dirname(input);
   return parent === "." ? "" : parent;
-}
-function getFileServiceParentPath(input, rootPath) {
-  if (!input || input === rootPath) {
-    return "";
-  }
-  const parent = path6.posix.dirname(input);
-  return parent === rootPath ? "" : parent;
 }
 function normalizeLastModified(value) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
@@ -1627,23 +1848,8 @@ function normalizeLastModified(value) {
   }
   return "";
 }
-function getFileServiceOrigin(request, config2) {
-  const fallback = new URL(config2.appOrigin);
-  const host = firstHeader(request.headers["x-forwarded-host"]) || request.headers.host || fallback.host;
-  const protocol = firstHeader(request.headers["x-forwarded-proto"]) || fallback.protocol.replace(/:$/, "") || "https";
-  const boxDomain = getBoxDomain(host);
-  return `${protocol}://file.${boxDomain}`;
-}
-function firstHeader(value) {
+function firstHeader2(value) {
   return Array.isArray(value) ? value[0] : value;
-}
-function getBoxDomain(host) {
-  const hostname = host.split(":")[0] || host;
-  const parts = hostname.split(".").filter(Boolean);
-  if (parts.length <= 2) {
-    return hostname;
-  }
-  return parts.slice(1).join(".");
 }
 function compareEntries(a, b) {
   if (a.type !== b.type) {
@@ -1733,11 +1939,11 @@ function sanitizeOnlineUrlTitle(input) {
 
 // server/static.ts
 import fs6 from "node:fs";
-import path7 from "node:path";
-var FRONTEND_DIST = path7.resolve(process.env.FRONTEND_DIST || "dist/frontend");
+import path8 from "node:path";
+var FRONTEND_DIST = path8.resolve(process.env.FRONTEND_DIST || "dist/frontend");
 function serveStatic(urlPath, response) {
   const normalizedPath = urlPath === "/" ? "/index.html" : urlPath;
-  const target = path7.resolve(FRONTEND_DIST, `.${normalizedPath}`);
+  const target = path8.resolve(FRONTEND_DIST, `.${normalizedPath}`);
   if (!target.startsWith(FRONTEND_DIST)) return false;
   if (!fs6.existsSync(target) || !fs6.statSync(target).isFile()) return false;
   response.writeHead(200, { "content-type": contentType(target) });
